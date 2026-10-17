@@ -1,0 +1,371 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		008EC526820280D24F5EE2A2 /* ExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A72C9FED46FAF26526A04E /* ExportView.swift */; };
+		0724D55408D581D36CE36D99 /* ChuangCutCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0615EE38AB870C4244BD6EA /* ChuangCutCore */; };
+		1B2EE30F80A3842788E75EDB /* ChuangCutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41EC52CD0DDA3595FE34B39B /* ChuangCutApp.swift */; };
+		606C5F7FB363047CB4D97B85 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */; };
+		79C2C7F1BFDF7B5441D86E67 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44081C3DE9B0AF161B4D7FC6 /* AppSettings.swift */; };
+		7C8E1CF0A423C7DD970D18C9 /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE24DE9424D0A2CF11D31CA /* EditorModel.swift */; };
+		E7420D88B275938614CEF05B /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 672365DC876DC7C3F5440427 /* TranscriptView.swift */; };
+		FF15DDB6574774D8B73B68CD /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21710EE555607A4C042AAD10 /* TimelineView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1BC79258A5C5A921E2BA03FC /* ChuangCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChuangCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		21710EE555607A4C042AAD10 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		3E9C8C54956C1E81488251B7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		41EC52CD0DDA3595FE34B39B /* ChuangCutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChuangCutApp.swift; sourceTree = "<group>"; };
+		44081C3DE9B0AF161B4D7FC6 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		672365DC876DC7C3F5440427 /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptView.swift; sourceTree = "<group>"; };
+		89A72C9FED46FAF26526A04E /* ExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportView.swift; sourceTree = "<group>"; };
+		94ABF358141F2F1F281CF763 /* ChuangCutCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ChuangCutCore; path = Packages/ChuangCutCore; sourceTree = SOURCE_ROOT; };
+		DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		DDE24DE9424D0A2CF11D31CA /* EditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModel.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A08934BCA56176E47DE09456 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0724D55408D581D36CE36D99 /* ChuangCutCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0450C42FA53D83F070580532 = {
+			isa = PBXGroup;
+			children = (
+				FDA9D2B1428EA973945A6B53 /* ChuangCut */,
+				21FFC9D44AC21B1ACAD4FDFF /* Packages */,
+				53AFAA84FF97C7E172AAAEC2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		21FFC9D44AC21B1ACAD4FDFF /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				94ABF358141F2F1F281CF763 /* ChuangCutCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		53AFAA84FF97C7E172AAAEC2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1BC79258A5C5A921E2BA03FC /* ChuangCut.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FDA9D2B1428EA973945A6B53 /* ChuangCut */ = {
+			isa = PBXGroup;
+			children = (
+				44081C3DE9B0AF161B4D7FC6 /* AppSettings.swift */,
+				41EC52CD0DDA3595FE34B39B /* ChuangCutApp.swift */,
+				DDE24DE9424D0A2CF11D31CA /* EditorModel.swift */,
+				89A72C9FED46FAF26526A04E /* ExportView.swift */,
+				3E9C8C54956C1E81488251B7 /* Info.plist */,
+				DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */,
+				21710EE555607A4C042AAD10 /* TimelineView.swift */,
+				672365DC876DC7C3F5440427 /* TranscriptView.swift */,
+			);
+			path = ChuangCut;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		993C7AE4FF6D329C196FAD09 /* ChuangCut */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F8874FD6819C01672C78F052 /* Build configuration list for PBXNativeTarget "ChuangCut" */;
+			buildPhases = (
+				68F6D30D23D786FC3E26616D /* Sources */,
+				A08934BCA56176E47DE09456 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ChuangCut;
+			packageProductDependencies = (
+				C0615EE38AB870C4244BD6EA /* ChuangCutCore */,
+			);
+			productName = ChuangCut;
+			productReference = 1BC79258A5C5A921E2BA03FC /* ChuangCut.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DA10F82CDBCA2BB255693589 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					993C7AE4FF6D329C196FAD09 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 52628386E442BB76C78A010C /* Build configuration list for PBXProject "ChuangCut" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 0450C42FA53D83F070580532;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				08A8225D0C6F32A2028D9A30 /* XCLocalSwiftPackageReference "Packages/ChuangCutCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 53AFAA84FF97C7E172AAAEC2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				993C7AE4FF6D329C196FAD09 /* ChuangCut */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		68F6D30D23D786FC3E26616D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				79C2C7F1BFDF7B5441D86E67 /* AppSettings.swift in Sources */,
+				1B2EE30F80A3842788E75EDB /* ChuangCutApp.swift in Sources */,
+				7C8E1CF0A423C7DD970D18C9 /* EditorModel.swift in Sources */,
+				008EC526820280D24F5EE2A2 /* ExportView.swift in Sources */,
+				606C5F7FB363047CB4D97B85 /* SettingsView.swift in Sources */,
+				FF15DDB6574774D8B73B68CD /* TimelineView.swift in Sources */,
+				E7420D88B275938614CEF05B /* TranscriptView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2B6E12266B452BD1D84424DB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ChuangCut/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ChuangCut;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = ChuangCut;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chuangcut.editor;
+				PRODUCT_NAME = ChuangCut;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		C40193FD57317A3739C9ACE7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		CC94F96E14BAA8F2DDEE9862 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ChuangCut/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ChuangCut;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHighResolutionCapable = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = ChuangCut;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chuangcut.editor;
+				PRODUCT_NAME = ChuangCut;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		FB3F727ABCF405F8152A21E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		52628386E442BB76C78A010C /* Build configuration list for PBXProject "ChuangCut" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FB3F727ABCF405F8152A21E6 /* Debug */,
+				C40193FD57317A3739C9ACE7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F8874FD6819C01672C78F052 /* Build configuration list for PBXNativeTarget "ChuangCut" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2B6E12266B452BD1D84424DB /* Debug */,
+				CC94F96E14BAA8F2DDEE9862 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		08A8225D0C6F32A2028D9A30 /* XCLocalSwiftPackageReference "Packages/ChuangCutCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ChuangCutCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C0615EE38AB870C4244BD6EA /* ChuangCutCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ChuangCutCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DA10F82CDBCA2BB255693589 /* Project object */;
+}

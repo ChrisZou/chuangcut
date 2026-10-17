@@ -1,0 +1,42 @@
+name: ChuangCut
+options:
+  bundleIdPrefix: com.chuangcut
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  ChuangCutCore:
+    path: Packages/ChuangCutCore
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: NO
+    ENABLE_APP_SANDBOX: NO
+    DEVELOPMENT_TEAM: ""
+targets:
+  ChuangCut:
+    type: application
+    platform: macOS
+    sources:
+      - ChuangCut
+    dependencies:
+      - package: ChuangCutCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chuangcut.editor
+        PRODUCT_NAME: ChuangCut
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ChuangCut
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.video
+        INFOPLIST_KEY_NSHumanReadableCopyright: "ChuangCut"
+        INFOPLIST_KEY_NSHighResolutionCapable: YES
+    info:
+      path: ChuangCut/Info.plist
+      properties:
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Video
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.movie, public.mpeg-4, com.apple.quicktime-movie]
