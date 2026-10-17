@@ -2,6 +2,7 @@ import SwiftUI
 import ChuangCutCore
 
 struct SettingsView: View {
+    @ObservedObject var model: EditorModel
     @ObservedObject var settings = AppSettings.shared
     @State private var found: [URL] = []
     @State private var modelName = ModelManager.recommended[0]
@@ -42,8 +43,8 @@ struct SettingsView: View {
                 HStack { Text("Keep padding"); Slider(value: $settings.padding, in: 0...0.25, step: 0.01); Text(String(format: "%.2f s", settings.padding)).monospacedDigit().frame(width: 55) }
                 TextField("Fillers", text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
             }.formStyle(.grouped).tabItem { Label("Detection", systemImage: "waveform") }
-            Form { SubtitleStyleControls(style: $settings.style) }.formStyle(.grouped).tabItem { Label("Subtitles", systemImage: "captions.bubble") }
-        }.padding(12).frame(width: 570, height: 440)
+            VStack(spacing: 12) { SubtitlePreview(model: model, thumbnails: model.thumbnails, style: settings.style).padding(.horizontal, 20); Form { SubtitleStyleControls(style: $settings.style) }.formStyle(.grouped) }.tabItem { Label("Subtitles", systemImage: "captions.bubble") }
+        }.padding(12).frame(width: 610, height: 570)
             .task { refresh(includeDownloads: false) }
             .alert("Download failed", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
     }
@@ -68,6 +69,7 @@ struct SettingsView: View {
 struct SubtitleStyleControls: View {
     @Binding var style: SubtitleStyle
     var body: some View {
+        Toggle("Replace inner punctuation with spaces", isOn: $style.replaceInnerPunctuationWithSpaces)
         TextField("Font", text: $style.fontName)
         HStack { Text("Size"); Slider(value: $style.fontSize, in: 16...96, step: 1); Text("\(Int(style.fontSize))").monospacedDigit().frame(width: 28) }
         TextField("Color (hex)", text: $style.colorHex)

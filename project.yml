@@ -27,6 +27,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.chuangcut.editor
         PRODUCT_NAME: ChuangCut
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ChuangCut
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.video
