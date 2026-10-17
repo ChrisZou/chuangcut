@@ -5,12 +5,16 @@ public struct TimelineMapper: Sendable {
     public let cutRanges: [TimeRange]
     public let keptRanges: [TimeRange]
     public var editedDuration: Double { keptRanges.reduce(0) { $0 + $1.duration } }
-    public init(duration: Double, cuts: [CutCandidate]) {
+    public init(duration: Double, cuts: [CutCandidate], splits: [Double] = []) {
         self.duration = max(0, duration)
         cutRanges = Self.merge(cuts.filter(\.enabled).map { TimeRange(max(0, $0.sourceStart), min(duration, $0.sourceEnd)) })
         var kept: [TimeRange] = []; var cursor = 0.0
         for cut in cutRanges { if cut.start > cursor { kept.append(TimeRange(cursor, cut.start)) }; cursor = max(cursor, cut.end) }
-        if cursor < duration { kept.append(TimeRange(cursor, duration)) }; keptRanges = kept
+        if cursor < duration { kept.append(TimeRange(cursor, duration)) }
+        keptRanges = kept.flatMap { range -> [TimeRange] in
+            let points = [range.start] + Array(Set(splits.filter { $0 > range.start + 0.000001 && $0 < range.end - 0.000001 })).sorted() + [range.end]
+            return zip(points, points.dropFirst()).map { TimeRange($0.0, $0.1) }
+        }
     }
     public static func merge(_ ranges: [TimeRange]) -> [TimeRange] {
         var result: [TimeRange] = []

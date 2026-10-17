@@ -30,7 +30,12 @@ public struct Segment: Codable, Identifiable, Equatable, Sendable {
 public struct Transcript: Codable, Equatable, Sendable {
     public var segments: [Segment]
     public var language: String
-    public init(segments: [Segment], language: String = "zh") { self.segments = segments; self.language = language }
+    public init(segments: [Segment], language: String = "zh") { self.segments = segments; self.language = language; normalizePunctuation() }
+    enum CodingKeys: String, CodingKey { case segments, language }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(segments: try c.decode([Segment].self, forKey: .segments), language: try c.decodeIfPresent(String.self, forKey: .language) ?? "zh")
+    }
     public var words: [Word] { segments.flatMap(\.words) }
 }
 public enum CutKind: String, Codable, CaseIterable, Sendable { case pause, retake, filler, manual }
@@ -42,6 +47,7 @@ public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {
     public var text: String
     public var reason: String
     public var enabled: Bool
+    public var isAdjusted: Bool? = nil
     public init(kind: CutKind, start: Double, end: Double, text: String = "", reason: String, enabled: Bool = true) {
         self.kind = kind; sourceStart = start; sourceEnd = end; self.text = text; self.reason = reason; self.enabled = enabled
     }
@@ -61,7 +67,21 @@ public struct SubtitleStyle: Codable, Equatable, Sendable {
     public var bottomMargin: Double = 42
     public var cjkLineLength = 16
     public var latinLineLength = 42
+    public var replaceInnerPunctuationWithSpaces = true
     public init() {}
+    enum CodingKeys: String, CodingKey { case fontName, fontSize, colorHex, outline, bottomMargin, cjkLineLength, latinLineLength, replaceInnerPunctuationWithSpaces }
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fontName = try c.decodeIfPresent(String.self, forKey: .fontName) ?? fontName
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? fontSize
+        colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? colorHex
+        outline = try c.decodeIfPresent(Double.self, forKey: .outline) ?? outline
+        bottomMargin = try c.decodeIfPresent(Double.self, forKey: .bottomMargin) ?? bottomMargin
+        cjkLineLength = try c.decodeIfPresent(Int.self, forKey: .cjkLineLength) ?? cjkLineLength
+        latinLineLength = try c.decodeIfPresent(Int.self, forKey: .latinLineLength) ?? latinLineLength
+        replaceInnerPunctuationWithSpaces = try c.decodeIfPresent(Bool.self, forKey: .replaceInnerPunctuationWithSpaces) ?? true
+    }
 }
 public struct MediaInfo: Codable, Sendable {
     public var duration: Double
@@ -69,6 +89,7 @@ public struct MediaInfo: Codable, Sendable {
     public var height: Int
     public var bitrate: Int
     public var hasAudio: Bool
+    public var frameRate: Double? = nil
 }
 public struct Project: Codable, Sendable {
     public var source: URL
@@ -76,10 +97,11 @@ public struct Project: Codable, Sendable {
     public var transcript: Transcript?
     public var candidates: [CutCandidate]
     public var silences: [TimeRange]
+    public var splitPoints: [Double]? = nil
     public init(source: URL, media: MediaInfo, transcript: Transcript? = nil, candidates: [CutCandidate] = [], silences: [TimeRange] = []) {
         self.source = source; self.media = media; self.transcript = transcript; self.candidates = candidates; self.silences = silences
     }
-    public var mapper: TimelineMapper { TimelineMapper(duration: media.duration, cuts: candidates) }
+    public var mapper: TimelineMapper { TimelineMapper(duration: media.duration, cuts: candidates, splits: splitPoints ?? []) }
 }
 public enum ChuangCutError: LocalizedError {
     case message(String)

@@ -6,7 +6,7 @@ import ChuangCutCore
         do {
             let args = Array(CommandLine.arguments.dropFirst())
             guard let path = args.first, !path.hasPrefix("--") else {
-                print("Usage: chuangcut-cli <input.mp4> --out <dir> [--model PATH] [--lang zh|auto] [--pause 0.6] [--burn]"); return
+                print("Usage: chuangcut-cli <input.mp4> --out <dir> [--model PATH] [--lang zh|auto] [--pause 0.6] [--burn] [--trim INDEX:left|right:SECONDS]…"); return
             }
             func value(_ key: String) -> String? { guard let i = args.firstIndex(of: key), i + 1 < args.count else { return nil }; return args[i + 1] }
             guard let out = value("--out") else { throw ChuangCutError.message("--out is required") }
@@ -23,9 +23,22 @@ import ChuangCutCore
             for source in [interrupt, terminate] { source.setEventHandler { cancellation.cancel() }; source.resume() }
             defer { interrupt.cancel(); terminate.cancel() }
             print("Model: \(model.lastPathComponent)")
-            let project = try Pipeline().analyze(input: source, model: model, language: value("--lang") ?? "zh", settings: settings, cancellation: cancellation) { stage, percent in
+            var project = try Pipeline().analyze(input: source, model: model, language: value("--lang") ?? "zh", settings: settings, cancellation: cancellation) { stage, percent in
                 if percent == 1 || percent == 0.02 || percent == 0.8 { print("\(stage) \(Int(percent * 100))%") }
             }
+            func printSegments(_ label: String) {
+                print(label)
+                for (i, range) in project.mapper.keptRanges.enumerated() { print(String(format: "  %d: %.3f–%.3f", i, range.start, range.end)) }
+            }
+            printSegments("Kept segments before trims:")
+            for index in args.indices where args[index] == "--trim" {
+                guard index + 1 < args.count else { throw ChuangCutError.message("--trim needs a value") }
+                let trim = try TrimInstruction(args[index + 1])
+                guard project.mapper.keptRanges.indices.contains(trim.segmentIndex) else { throw ChuangCutError.message("Trim segment index is out of range") }
+                project.candidates = TimelineEditor.trim(duration: project.media.duration, segmentIndex: trim.segmentIndex, edge: trim.edge, newSourceTime: trim.sourceTime, cuts: project.candidates)
+            }
+            printSegments("Kept segments after trims:")
+            try JSONFile.write(project, to: destination.appendingPathComponent("project.json"))
             try JSONFile.write(project.transcript!, to: destination.appendingPathComponent("transcript.json"))
             try JSONFile.write(project.candidates, to: destination.appendingPathComponent("cuts.json"))
             var options = ExportOptions()

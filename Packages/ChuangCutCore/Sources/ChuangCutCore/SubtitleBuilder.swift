@@ -13,59 +13,52 @@ public struct SubtitleBuilder {
     private let ending = CharacterSet(charactersIn: "。，！？、,.!?，；;：: ")
     public func build(words: [Word], mapper: TimelineMapper, fillers: [CutCandidate] = []) -> [SubtitleCue] {
         let kept = words.filter { word in
-            !mapper.removes(word) && !fillers.contains { $0.kind == .filler && $0.range.contains((word.start + word.end) / 2) }
+            !mapper.removes(word) && !fillers.contains { $0.kind == .filler && $0.enabled && $0.range.contains((word.start + word.end) / 2) }
         }
         var cues: [SubtitleCue] = []; var buffer: [Word] = []
         func flush(_ chunk: [Word]) {
             guard let first = chunk.first, let last = chunk.last else { return }
-            let text = chunk.map(\.text).joined().trimmingCharacters(in: ending.union(.whitespacesAndNewlines))
+            var text = TextNormalization.cjkPunctuation(chunk.map(\.text).joined()).trimmingCharacters(in: .whitespacesAndNewlines)
+            while let last = text.unicodeScalars.last, ending.contains(last) { text.removeLast() }
+            if style.replaceInnerPunctuationWithSpaces && TextNormalization.isCJKDominant(text) {
+                text = text.replacingOccurrences(of: "[，、；：\\s]+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+            }
             guard !text.isEmpty else { return }
             let start = max(cues.last?.end ?? 0, mapper.sourceToCut(first.start))
             let end = min(mapper.editedDuration, max(start + 0.04, mapper.sourceToCut(last.end)))
             if end > start { cues.append(SubtitleCue(start: start, end: end, text: text)) }
         }
         func splitSentence(_ sentence: [Word]) {
-            var rest = sentence
-            while !rest.isEmpty {
-                let text = rest.map(\.text).joined()
-                let cjk = text.contains(where: isCJK)
-                let limit = cjk ? max(2, style.cjkLineLength) : max(8, style.latinLineLength)
-                var count = 0, length = 0
-                for word in rest {
-                    let nextLength = length + word.text.count
-                    let span = mapper.sourceToCut(word.end) - mapper.sourceToCut(rest[0].start)
-                    if count > 0 && (nextLength > limit || span > 5.5) { break }
-                    count += 1; length = nextLength
-                }
-                count = max(1, count)
-                if count < rest.count {
-                    let preferred = (0..<count).last { index in
-                        rest[index].text.contains { "，、；：,;:".contains($0) } && index >= count / 3
-                    }
-                    if let preferred { count = preferred + 1 }
-                    else {
-                        // Balance a short final CJK tail instead of flashing one or two characters.
-                        let tailLength = rest.dropFirst(count).map(\.text).joined().trimmingCharacters(in: ending).count
-                        if cjk && tailLength > 0 && tailLength < max(3, limit / 3) {
-                            let target = (text.trimmingCharacters(in: ending).count + 1) / 2
-                            let maximum = count
-                            let tokenizer = NLTokenizer(unit: .word); tokenizer.string = text
-                            var boundaries: Set<Int> = []
-                            tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-                                boundaries.insert(text.distance(from: text.startIndex, to: range.upperBound)); return true
-                            }
-                            var accumulated = 0, choices: [(Int, Int)] = []
-                            for index in 0..<maximum {
-                                accumulated += rest[index].text.count
-                                if boundaries.contains(accumulated) { choices.append((index + 1, abs(accumulated - target))) }
-                            }
-                            if let best = choices.min(by: { $0.1 < $1.1 }) { count = best.0 }
-                        }
-                    }
-                }
-                flush(Array(rest.prefix(count))); rest.removeFirst(count)
-                while let first = rest.first, first.isPunctuation { rest.removeFirst() }
+            guard !sentence.isEmpty else { return }
+            let text = sentence.map(\.text).joined()
+            let cjk = TextNormalization.isCJKDominant(text)
+            let limit = cjk ? max(8, style.cjkLineLength) : max(8, style.latinLineLength)
+            let length = text.trimmingCharacters(in: ending).count
+            let duration = mapper.sourceToCut(sentence.last!.end) - mapper.sourceToCut(sentence.first!.start)
+            guard sentence.count > 1, length > limit || duration > 5.5 else { flush(sentence); return }
+            let tokenizer = NLTokenizer(unit: .word); tokenizer.string = text
+            var lexical: Set<Int> = []
+            tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+                lexical.insert(text.distance(from: text.startIndex, to: range.upperBound)); return true
             }
+            let totalCJK = text.filter(isCJK).count
+            var offset = 0, options: [(index: Int, punctuation: Bool, lexical: Bool, score: Double)] = []
+            for i in 1..<sentence.count {
+                offset += sentence[i - 1].text.count
+                let left = sentence.prefix(i).map(\.text).joined()
+                let right = sentence.dropFirst(i).map(\.text).joined()
+                if right.trimmingCharacters(in: ending).isEmpty { continue }
+                // A short complete sentence may stand alone, but splitting must not create an orphan.
+                if cjk && (left.filter(isCJK).count < 4 || right.filter(isCJK).count < 4) { continue }
+                let punctuation = sentence[i - 1].text.contains { "，、；：,;:".contains($0) }
+                let balance = cjk ? abs(Double(left.filter(isCJK).count) - Double(totalCJK) / 2) : abs(Double(offset) - Double(length) / 2)
+                options.append((i, punctuation, lexical.contains(offset), balance))
+            }
+            let pool = options.filter(\.punctuation).isEmpty ? (options.filter(\.lexical).isEmpty ? options : options.filter(\.lexical)) : options.filter(\.punctuation)
+            // On an equal balance, keep the longer first half: a verb stays with its subject.
+            guard let best = pool.min(by: { $0.score == $1.score ? $0.index > $1.index : $0.score < $1.score }) else { flush(sentence); return }
+            splitSentence(Array(sentence.prefix(best.index)))
+            splitSentence(Array(sentence.dropFirst(best.index)))
         }
         for word in kept {
             if let last = buffer.last, mapper.sourceToCut(word.start) - mapper.sourceToCut(last.end) > 0.8 { splitSentence(buffer); buffer = [] }

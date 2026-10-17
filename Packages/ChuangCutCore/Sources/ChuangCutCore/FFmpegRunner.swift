@@ -17,7 +17,9 @@ public struct FFmpegRunner {
         let format = root["format"] as? [String: Any] ?? [:]
         let duration = Double(format["duration"] as? String ?? "0") ?? 0
         guard duration > 0 else { throw ChuangCutError.message("Video duration is unavailable") }
-        return MediaInfo(duration: duration, width: video["width"] as? Int ?? 1280, height: video["height"] as? Int ?? 720, bitrate: Int(video["bit_rate"] as? String ?? format["bit_rate"] as? String ?? "4000000") ?? 4_000_000, hasAudio: streams.contains { $0["codec_type"] as? String == "audio" })
+        let fraction = (video["avg_frame_rate"] as? String ?? "0/1").split(separator: "/").compactMap { Double($0) }
+        let fps = fraction.count == 2 && fraction[1] > 0 ? fraction[0] / fraction[1] : 0
+        return MediaInfo(duration: duration, width: video["width"] as? Int ?? 1280, height: video["height"] as? Int ?? 720, bitrate: Int(video["bit_rate"] as? String ?? format["bit_rate"] as? String ?? "4000000") ?? 4_000_000, hasAudio: streams.contains { $0["codec_type"] as? String == "audio" }, frameRate: fps)
     }
     public func extractAudio(_ input: URL, to output: URL, cancellation: CancellationToken) throws {
         _ = try ProcessRunner.run(tools.ffmpeg, ["-y", "-v", "error", "-i", input.path, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output.path], cancellation: cancellation)

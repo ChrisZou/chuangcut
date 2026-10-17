@@ -16,7 +16,10 @@ public struct Pipeline {
     public static func restore(_ source: URL) throws -> Project? {
         let path = try cacheDirectory(for: source).appendingPathComponent("project.json")
         guard FileManager.default.fileExists(atPath: path.path) else { return nil }
-        return try JSONDecoder().decode(Project.self, from: Data(contentsOf: path))
+        var project = try JSONDecoder().decode(Project.self, from: Data(contentsOf: path))
+        project.transcript?.normalizePunctuation()
+        for i in project.candidates.indices { project.candidates[i].text = TextNormalization.cjkPunctuation(project.candidates[i].text) }
+        return project
     }
     public func analyze(input: URL, model: URL, language: String = "zh", settings: DetectionSettings = DetectionSettings(), cancellation: CancellationToken = CancellationToken(), progress: @escaping (String, Double) -> Void = { _, _ in }) throws -> Project {
         let ffmpeg = FFmpegRunner(tools: tools), media = try ffmpeg.probe(input, cancellation: cancellation)
@@ -27,7 +30,7 @@ public struct Pipeline {
         let hash = SHA256.hash(data: Data(key.utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
         let transcriptURL = cache.appendingPathComponent("transcript-\(hash).json")
         let transcript: Transcript
-        if let data = try? Data(contentsOf: transcriptURL), let cached = try? JSONDecoder().decode(Transcript.self, from: data) { transcript = cached; progress("Cached transcript", 0.75) }
+        if let data = try? Data(contentsOf: transcriptURL), let cached = try? JSONDecoder().decode(Transcript.self, from: data) { var normalized = cached; normalized.normalizePunctuation(); transcript = normalized; progress("Cached transcript", 0.75) }
         else {
             progress("Extracting audio", 0.02)
             let wav = cache.appendingPathComponent("audio.wav")
