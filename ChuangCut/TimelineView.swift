@@ -113,7 +113,7 @@ final class TimelineCanvas: NSView {
             NSColor.black.withAlphaComponent(0.18).setFill(); NSRect(x: box.minX, y: box.minY, width: box.width, height: 22).fill()
             if box.width > 45 {
                 let label = "\(clip.index + 1)  \(model.project?.source.lastPathComponent ?? "Video")"
-                drawText(label, at: NSPoint(x: max(box.minX + 10, dirtyRect.minX + 4), y: box.minY + 5), color: .white, size: 10, weight: .medium)
+                drawText(label, at: NSPoint(x: max(box.minX + 16, dirtyRect.minX + 4), y: box.minY + 5), color: .white, size: 10, weight: .medium)
             }
             let wave = NSRect(x: box.minX, y: box.minY + 64, width: box.width, height: 36)
             NSColor(calibratedRed: 0.08, green: 0.23, blue: 0.25, alpha: 1).setFill(); wave.fill()
@@ -121,11 +121,19 @@ final class TimelineCanvas: NSView {
             cg.restoreGState()
             if model.selectedSegment == clip.index {
                 NSColor.systemYellow.setStroke(); path.lineWidth = 2; path.stroke()
-                for handleX in [box.minX + 1, box.maxX - 8] {
-                    let handle = NSRect(x: handleX, y: box.minY + 1, width: 7, height: box.height - 2)
-                    NSColor.systemYellow.setFill(); NSBezierPath(roundedRect: handle, xRadius: 3, yRadius: 3).fill()
-                    NSColor.black.withAlphaComponent(0.65).setFill(); NSRect(x: handle.midX - 0.5, y: handle.midY - 8, width: 1, height: 16).fill()
+                // Solid 12-point bars clipped to the clip silhouette: rounded outside,
+                // square inside, with two dark grip strokes centered on each handle.
+                cg.saveGState(); path.addClip()
+                let width = min(12.0, box.width / 2)
+                for handleX in [box.minX, box.maxX - width] {
+                    let handle = NSRect(x: handleX, y: box.minY, width: width, height: box.height)
+                    NSColor.systemYellow.setFill(); handle.fill()
+                    NSColor.black.withAlphaComponent(0.75).setFill()
+                    for dx in [-2.0, 1.0] {
+                        NSBezierPath(roundedRect: NSRect(x: handle.midX + dx, y: handle.midY - 8, width: 1, height: 16), xRadius: 0.5, yRadius: 0.5).fill()
+                    }
                 }
+                cg.restoreGState()
             } else { NSColor.white.withAlphaComponent(0.17).setStroke(); path.lineWidth = 1; path.stroke() }
         }
         if removed {
@@ -186,12 +194,30 @@ final class TimelineCanvas: NSView {
     private func drawText(_ text: String, at point: NSPoint, color: NSColor, size: Double, weight: NSFont.Weight = .regular, mono: Bool = false) {
         text.draw(at: point, withAttributes: [.font: mono ? NSFont.monospacedSystemFont(ofSize: size, weight: weight) : NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color])
     }
+    private func handleRect(_ clip: Clip, edge: TrimEdge) -> NSRect {
+        let box = rect(clip)
+        return NSRect(x: edge == .left ? box.minX - 4 : box.maxX - 12, y: box.minY - 4, width: 16, height: box.height + 8)
+    }
+    private func handle(at point: NSPoint) -> (Clip, TrimEdge)? {
+        var hits: [(clip: Clip, edge: TrimEdge, inside: Bool, distance: Double)] = []
+        for clip in clips {
+            let box = rect(clip)
+            for edge in [TrimEdge.left, .right] where handleRect(clip, edge: edge).contains(point) {
+                hits.append((clip, edge, box.contains(point), abs(point.x - (edge == .left ? box.minX : box.maxX))))
+            }
+        }
+        // At butted joins, the side under the pointer wins, including unselected clips.
+        guard let hit = hits.min(by: {
+            if $0.inside != $1.inside { return $0.inside }
+            if $0.distance != $1.distance { return $0.distance < $1.distance }
+            return $0.clip.index == model?.selectedSegment && $1.clip.index != model?.selectedSegment
+        }) else { return nil }
+        return (hit.clip, hit.edge)
+    }
     override func resetCursorRects() {
         super.resetCursorRects()
-        if let index = model?.selectedSegment, let clip = clips.first(where: { $0.index == index }) {
-            let box = rect(clip)
-            addCursorRect(NSRect(x: box.minX - 4, y: box.minY, width: 13, height: box.height), cursor: .resizeLeftRight)
-            addCursorRect(NSRect(x: box.maxX - 9, y: box.minY, width: 13, height: box.height), cursor: .resizeLeftRight)
+        for clip in clips where rect(clip).intersects(visibleRect) {
+            for edge in [TrimEdge.left, .right] { addCursorRect(handleRect(clip, edge: edge), cursor: .resizeLeftRight) }
         }
     }
     override func updateTrackingAreas() {
@@ -211,15 +237,13 @@ final class TimelineCanvas: NSView {
         window?.makeFirstResponder(self); model.timelineFocused = true
         let point = convert(event.locationInWindow, from: nil)
         if removed && event.modifierFlags.contains(.option), let cut = model.project?.candidates.first(where: { $0.range.contains((point.x - inset) / pps) }) { model.toggle(cut.id); return }
-        if let index = model.selectedSegment, let clip = clips.first(where: { $0.index == index }), point.y >= trackY, point.y <= trackY + trackHeight {
-            let box = rect(clip)
-            let edge: TrimEdge? = abs(point.x - box.minX) <= 9 ? .left : abs(point.x - box.maxX) <= 9 ? .right : nil
-            if let edge {
-                let lower = edge == .left ? (index > 0 ? clips[index - 1].source.end : 0) : clip.source.start + min(0.1, clip.source.duration)
-                let upper = edge == .right ? (index + 1 < clips.count ? clips[index + 1].source.start : mapper.duration) : clip.source.end - min(0.1, clip.source.duration)
-                dragState = DragState(index: index, edge: edge, source: clip.source, originX: point.x, lower: lower, upper: upper, edgeX: edge == .left ? box.minX : box.maxX, playhead: model.playhead)
-                edgeTime = edge == .left ? clip.source.start : clip.source.end; model.beginTrim(); return
-            }
+        if let (clip, edge) = handle(at: point) {
+            let index = clip.index, box = rect(clip)
+            model.selectedSegment = index; model.selectedCandidate = nil
+            let lower = edge == .left ? (index > 0 ? clips[index - 1].source.end : 0) : clip.source.start + min(0.1, clip.source.duration)
+            let upper = edge == .right ? (index + 1 < clips.count ? clips[index + 1].source.start : mapper.duration) : clip.source.end - min(0.1, clip.source.duration)
+            dragState = DragState(index: index, edge: edge, source: clip.source, originX: point.x, lower: lower, upper: upper, edgeX: edge == .left ? box.minX : box.maxX, playhead: model.playhead)
+            edgeTime = edge == .left ? clip.source.start : clip.source.end; model.beginTrim(); return
         }
         if let clip = clips.first(where: { rect($0).contains(point) }) {
             model.selectedSegment = clip.index; model.selectedCandidate = nil

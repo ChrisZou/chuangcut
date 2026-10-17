@@ -65,7 +65,7 @@ private struct CandidateRow: View {
                         Text(String(format: "%.2f – %.2f", cut.sourceStart, cut.sourceEnd)).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                     }
-                    Text(cut.kind == .pause ? String(format: "Ⅱ %.1fs", cut.range.duration) : cut.text).font(.system(size: 12)).lineLimit(2).foregroundStyle(cut.enabled ? .primary : .secondary)
+                    Text(cut.text).font(.system(size: 12)).lineLimit(2).foregroundStyle(cut.enabled ? .primary : .secondary)
                     if cut.isAdjusted == true { Text("Adjusted").font(.system(size: 9, weight: .medium)).foregroundStyle(cut.kind.tint).padding(.horizontal, 5).padding(.vertical, 2).background(cut.kind.tint.opacity(0.1), in: Capsule()) }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).help(cut.reason)

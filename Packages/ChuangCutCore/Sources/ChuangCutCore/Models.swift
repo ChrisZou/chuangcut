@@ -42,14 +42,24 @@ public enum CutKind: String, Codable, CaseIterable, Sendable { case pause, retak
 public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID = UUID()
     public var kind: CutKind
-    public var sourceStart: Double
-    public var sourceEnd: Double
+    public var sourceStart: Double { didSet { refreshPauseText() } }
+    public var sourceEnd: Double { didSet { refreshPauseText() } }
     public var text: String
     public var reason: String
     public var enabled: Bool
     public var isAdjusted: Bool? = nil
     public init(kind: CutKind, start: Double, end: Double, text: String = "", reason: String, enabled: Bool = true) {
-        self.kind = kind; sourceStart = start; sourceEnd = end; self.text = text; self.reason = reason; self.enabled = enabled
+        self.kind = kind; sourceStart = start; sourceEnd = end; self.text = text; self.reason = reason; self.enabled = enabled; refreshPauseText()
+    }
+    private mutating func refreshPauseText() {
+        if kind == .pause { text = String(format: "⏸ %.1fs", max(0, sourceEnd - sourceStart)) }
+    }
+    enum CodingKeys: String, CodingKey { case id, kind, sourceStart, sourceEnd, text, reason, enabled, isAdjusted }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try c.decode(CutKind.self, forKey: .kind), start: try c.decode(Double.self, forKey: .sourceStart), end: try c.decode(Double.self, forKey: .sourceEnd), text: try c.decode(String.self, forKey: .text), reason: try c.decode(String.self, forKey: .reason), enabled: try c.decode(Bool.self, forKey: .enabled))
+        id = try c.decode(UUID.self, forKey: .id)
+        isAdjusted = try c.decodeIfPresent(Bool.self, forKey: .isAdjusted)
     }
     public var range: TimeRange { TimeRange(sourceStart, sourceEnd) }
 }

@@ -28,6 +28,10 @@ cuts = json.loads((out / "cuts.json").read_text())
 pauses = [cut for cut in cuts if cut["kind"] == "pause"]
 for center in (3.5, 12.9, 21.8):
     assert any(cut["sourceStart"] < center < cut["sourceEnd"] for cut in pauses), center
+for cut in pauses:
+    assert cut["text"].startswith("⏸ ")
+    assert abs(float(cut["text"][2:-1]) - (cut["sourceEnd"] - cut["sourceStart"])) <= .051
+assert result.stdout.count("[x]") == len([c for c in cuts if c["enabled"]])
 fillers = "".join(cut["text"] for cut in cuts if cut["kind"] == "filler")
 assert "嗯" in fillers and "那个" in fillers
 retakes = [cut for cut in cuts if cut["kind"] == "retake"]
@@ -65,6 +69,7 @@ for block in blocks:
         assert len(line) <= 16
         assert line[-1] not in "。，！？、,.!?，"
         assert line[0] not in "，,"
+        assert not any(line.endswith(word) for word in ("然后", "但是", "所以", "因为", "而且", "接着", "最后", "首先", "其实", "那么"))
 for i, second in enumerate((1.8, 8.5), 1):
     frame = out / f"burned-{i}.png"
     subprocess.run([ffmpeg, "-y", "-v", "error", "-ss", str(second), "-i", str(out / "cut_burned.mp4"), "-frames:v", "1", str(frame)], check=True)
@@ -102,6 +107,10 @@ if args.trim_out:
     after_duration = sum(end - start for start, end in after)
     assert abs(after_duration - before_duration - expected_delta) < 1e-6
     assert any(c.get("isAdjusted") for c in trimmed_project["candidates"])
+    assert "(adjusted)" in trimmed.stdout
+    for c in trimmed_project["candidates"]:
+        if c["kind"] == "pause":
+            assert abs(float(c["text"][2:-1]) - (c["sourceEnd"] - c["sourceStart"])) <= .051
     for name in ("cut.mp4", "cut_burned.mp4"):
         actual = probe(trimmed_out / name)
         actual_duration = float(actual["format"]["duration"])

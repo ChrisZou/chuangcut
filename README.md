@@ -30,6 +30,8 @@ The app opens the video, reuses a matching cached transcript, and detects cuts. 
 
 Screenshot hooks run after loading/analysis: `--seek <sourceSeconds>`, `--select-segment <zeroBasedIndex>`, repeatable `--trim <index>:<left|right>:<sourceSeconds>`, `--zoom <pointsPerSecond>`, `--show-export`, and `--show-settings`. `--appearance light|dark` changes only this app instance for screenshot testing. Opening and auto-transcription always start paused at zero unless `--seek` is supplied.
 
+To test dragging an **unselected** clip edge, launch with `--select-segment 0 --zoom 60`, then drag clip 3's right edge without clicking its body first. CLI/app `--trim` indices are zero-based; times in `--trim` and `--seek` are source seconds. Keyboard controls are Space (play/pause), ←/→ (±5 s), ⌘B (split), Delete (remove selected clip), Escape (deselect), ⌘Z / ⇧⌘Z (undo/redo).
+
 ## Editing
 
 - Drop a video into the window or use **File → Open** (`⌘O`).
@@ -38,8 +40,8 @@ Screenshot hooks run after loading/analysis: `--seek <sourceSeconds>`, `--select
 - Select transcript text and press Delete to create a manual cut. `⌘Z` undoes cut changes.
 - Each kind has an enable/disable-all icon. The toolbar and sidebar show the union of enabled cuts, so overlaps are never counted twice.
 - The edited timeline shows consecutive kept clips with cached thumbnail strips and audio waveforms. **Show removed** switches to source time with colored hatches; Option-click a removed range to toggle it.
-- Click a clip to select it and highlight its transcript words. Drag either yellow edge handle to remove or restore source material, with live frame preview and ripple reflow. Edges snap to words, playhead and neighboring boundaries within 8 px; hold `⌘` or turn off **Snap** to bypass.
-- A trim updates candidate ranges and shows **Adjusted** in the sidebar. Overlapping candidates are adjusted together when restoring material. Clips cannot grow past the neighboring kept source range or shrink below 0.1 s.
+- Click a clip to select it and highlight its transcript words. Drag either solid yellow edge handle to remove or restore source material, with live frame preview and ripple reflow. Handles are 12 pt wide with dark grips and 16 pt hit areas; hovering an unselected clip edge shows the resize cursor, and dragging it selects the clip automatically. Edges snap to words, playhead and neighboring boundaries within 8 px; hold `⌘` or turn off **Snap** to bypass.
+- A trim updates candidate ranges and shows **Adjusted** in the sidebar. Pause labels always show the actual removed duration, including adjustments, consistently in the sidebar, transcript and CLI. Overlapping candidates are adjusted together when restoring material. Clips cannot grow past the neighboring kept source range or shrink below 0.1 s.
 - Double-click a clip to play, Delete removes the selected clip, Escape deselects, and `⌘B` splits at the playhead. Splits persist without deleting material. `⌘Z` / `⇧⌘Z` undo/redo trims, toggles, splits and manual cuts.
 - Drag the ruler or clip body to scrub. Pinch or `⌘`-scroll to zoom around the cursor; the slider/buttons zoom around the playhead. Fit shows the whole edit; playback follows the playhead automatically.
 - **Preview cuts** skips enabled intervals using exact AVPlayer seeks. Space plays/pauses.
@@ -85,7 +87,7 @@ Packages/ChuangCutCore/.build/debug/chuangcut-cli input.mp4 \
   --trim 1:right:12.9 --trim 2:left:14.5
 ```
 
-The CLI prints kept source ranges before/after trims. Fully restored candidates become disabled while retaining valid bounds; re-enabling them deliberately reinstates their cut.
+The CLI prints kept source ranges before/after trims and marks each candidate `[x]` enabled or `[ ]` disabled, plus `(adjusted)` for edited bounds. Fully restored candidates become disabled while retaining valid bounds; re-enabling them deliberately reinstates their cut.
 
 Outputs:
 
@@ -137,7 +139,7 @@ Acoustic `silencedetect` results are authoritative when available, avoiding fals
 
 Export runs **one ffmpeg encoding pass per video**: `trim/atrim → setpts/asetpts → concat → optional overlay`. Hardware presets use `h264_videotoolbox` with source-derived bitrates; the software option uses `libx264` CRF 20. Audio is AAC 192 kb/s and MP4 has fast-start metadata. Video-only imports can be exported with a silent audio track; transcription requires audio.
 
-Transcript models normalize ASCII pause/question punctuation in CJK-dominant segments. Subtitle cues derive from the same adjusted kept ranges as playback and export, prefer punctuation near the middle, balance long clauses using system word segmentation, and avoid tiny CJK fragments and Latin mid-word breaks. Defaults are 16 CJK / 42 Latin characters, terminal punctuation removal, and inner Chinese pause marks replaced by spaces (configurable). Cues do not overlap and are clamped to edited duration. Disabled/restored filler cuts restore both audio and subtitle words.
+Transcript models normalize ASCII pause/question punctuation in CJK-dominant segments. Subtitle cues derive from the same adjusted kept ranges as playback and export, prefer punctuation near the middle, balance long clauses using system word segmentation, and avoid tiny CJK fragments and Latin mid-word breaks. Short connectives such as 然后、但是、所以 stay with the following text; other short clause tails are penalized when choosing a break. Defaults are 16 CJK / 42 Latin characters, terminal punctuation removal, and inner Chinese pause marks replaced by spaces (configurable). Cues do not overlap and are clamped to edited duration. Disabled/restored filler cuts restore both audio and subtitle words. Transcript styling, pause-pill placement and subtitle filtering share a duration-coverage rule: a word is removed when more than half its span is covered by the union of enabled cuts; exactly half is kept. Zero-duration ASR tokens use point membership. A pause pill precedes the first affected word, including when its cut starts inside that word. Removed sentence-ending punctuation still separates subtitle sentences, preventing a trimmed sentence from absorbing the next connective.
 
 **Burn-in does not require libass, subtitles, ass, or drawtext filters.** CoreText/CoreGraphics renders video-sized transparent PNGs in the selected font (default PingFang SC), color, outline, size and bottom margin. One ffconcat input contains timed cue PNGs plus transparent gap frames and a final sentinel. ffmpeg overlays that stream onto the concatenated video in the same pass. ASS is also generated for external tools.
 

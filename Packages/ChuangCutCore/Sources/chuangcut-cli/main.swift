@@ -48,7 +48,11 @@ import ChuangCutCore
                 try FFmpegRunner().export(project: project, to: destination.appendingPathComponent("cut_burned.mp4"), options: options, cancellation: cancellation) { _ in }
             }
             print(String(format: "Duration: %.3fs → %.3fs (saved %.3fs)", project.media.duration, project.mapper.editedDuration, project.media.duration - project.mapper.editedDuration))
-            for cut in project.candidates { print(String(format: "%-8@ %6.3f–%6.3f %@ — %@", cut.kind.rawValue as NSString, cut.sourceStart, cut.sourceEnd, cut.text as NSString, cut.reason as NSString)) }
+            for cut in project.candidates {
+                let state = cut.enabled ? "[x]" : "[ ]"
+                let adjusted = cut.isAdjusted == true ? " (adjusted)" : ""
+                print(String(format: "%@ %@ %6.3f–%6.3f %@%@ — %@", state, cut.kind.rawValue, cut.sourceStart, cut.sourceEnd, cut.text, adjusted, cut.reason))
+            }
             print("Output: \(destination.path)")
         } catch {
             FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8)); exit(1)

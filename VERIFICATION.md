@@ -5,7 +5,7 @@ Environment: Apple M2 Pro / arm64, macOS 26.3, Xcode 26.6, Swift 6.3 compiler in
 ## Build and tests
 
 - `cd Packages/ChuangCutCore && swift build`: **passed**.
-- `swift test`: **22 tests, 0 failures**. Coverage includes word-level merged-segment retakes, contextual/repeated fillers, stutters, acoustic boundary joins, leading/trailing silence, overlapping/disabled/clamped cuts, subtitle lengths/timing/Latin boundaries, damaged UTF-8 token recovery, running-process cancellation, and native subtitle PNG sequences.
+- `swift test`: **26 tests, 0 failures**. Coverage includes word-level merged-segment retakes, contextual/repeated fillers, stutters, acoustic boundary joins, leading/trailing silence, overlapping/disabled/clamped cuts, subtitle lengths/timing/Latin boundaries, damaged UTF-8 token recovery, running-process cancellation, and native subtitle PNG sequences.
 - `xcodegen generate`: **passed**; generated project committed.
 - `xcodebuild -project ChuangCut.xcodeproj -scheme ChuangCut -configuration Debug -derivedDataPath build/DerivedData build`: **BUILD SUCCEEDED**.
 - Only the standard “No AppIntents.framework dependency found” metadata warning appeared. No Swift build warnings/errors.
@@ -44,13 +44,14 @@ Final result:
 
 The second take starts around **9.57 s** and is kept. Retake boundaries join neighboring acoustic pauses to avoid residual syllables.
 
-Five subtitle cues are monotonic, non-overlapping, within the edited duration, at most 16 CJK characters per line, and have no trailing punctuation. The repeated sentence appears once; 嗯/那个 are absent. Final cue text:
+Six subtitle cues are monotonic, non-overlapping, within the edited duration, at most 16 CJK characters per line, and have no trailing punctuation. The repeated sentence appears once; 嗯/那个 are absent. Final cue text:
 
 ```text
 大家好 欢迎来到我的频道
 今天我们来聊医疗视频剪辑
-首先 我们需要导入一段视频 然后
-软件会自动识别停顿和重复的句子
+首先 我们需要导入一段视频
+然后 软件会自动识别
+停顿和重复的句子
 最后 导出剪辑好的视频
 ```
 
@@ -84,3 +85,15 @@ The existing model was used; a multi-gigabyte model was not re-downloaded solely
 - Launch hooks selected clip 2, set 60 points/s zoom, applied both trims, sought to 14.5 s and opened Export after detection. Fresh launches stayed paused at 0 s. Light/dark layouts, fixed timestamp gutter, rounded pause pills, thumbnail strips and media-card metadata were visually inspected.
 - `--show-settings` opened the native Settings window after load; the Subtitles tab showed the video-backed preview and enabled inner-punctuation preference. Compact Export sheet was checked with the filename preserved in the parent window title.
 - Screenshot artifacts are in `~/code/ai/chuangcut-testdata/shots/` (`polish-*.png`), outside the repository.
+
+## Final refinements
+
+- `swift test`: **26 tests, 0 failures**. Added coverage for all ten requested connectives, an unlisted short clause, strict majority coverage from either side, disjoint/overlapping cut unions, exact-half ties, zero-duration tokens, disabled cuts, shared transcript/subtitle classification, pause insertion before a partly covered word, live pause labels, legacy JSON label migration, and sentence boundaries whose punctuation is removed by a cut.
+- Debug `xcodebuild`: **BUILD SUCCEEDED**, with only the standard AppIntents metadata warning.
+- Re-ran `Scripts/verify_fixture.py … --out ~/code/ai/chuangcut-testdata/refine-base --trim-out ~/code/ai/chuangcut-testdata/refine-trim`. Both CLI runs use `--burn`. All four videos contain H.264 + AAC and fully decode. Baseline MP4 remains **16.067 s**; trimmed MP4 remains **15.800 s**, matching the exact continuous-time delta **−0.260584 s** within frame rounding.
+- Six subtitle cues now keep “然后” with its following phrase. No trailing punctuation, filler/retake duplicates, stranded connectives, overlapping cue times, or out-of-duration cues. The trimmed SRT omits “首先” and retimes all later cues.
+- CLI candidates now print `[x]` / `[ ]` and `(adjusted)`. Pause text is the current cut duration; for example the paired trims produce `[x] pause 12.900–14.500 ⏸ 1.6s (adjusted)`.
+- Native test: launched paused with clip 0 selected at 60 pt/s, then dragged **unselected** clip 2's right edge. It auto-selected, snapped to **20.27 s**, and reduced the edited duration to **15.0 s**. The sidebar showed **20.27–22.36, ⏸ 2.1s, Adjusted**; the transcript placed the **⏸ 2.1s** capsule before struck-through “重复的句子”. The selected clip has solid 12 pt yellow bars, rounded outer corners, dark double grips and a matching 2 pt border. Handle cursor/hit areas cover unselected clips too.
+- Screenshot: `~/code/ai/chuangcut-testdata/shots/refine-handles.png`.
+
+Exact edge regression: `chuangcut-cli test_zh.mp4 --out ~/code/ai/chuangcut-testdata/refine-edge --burn --trim 2:right:20.27` also passed. The continuous timeline is **15.014627 s** and both MP4s are **15.033333 s**, contain video/audio and fully decode. CLI prints `[x] pause 20.270–22.361 ⏸ 2.1s (adjusted)`. SRT excludes “重复的句子” and preserves “最后 导出剪辑好的视频” as a separate cue even though the preceding sentence's punctuation was cut.

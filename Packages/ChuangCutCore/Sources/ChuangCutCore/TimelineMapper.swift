@@ -34,7 +34,33 @@ public struct TimelineMapper: Sendable {
         for range in keptRanges { if remaining < range.duration { return range.start + remaining }; remaining -= range.duration }
         return keptRanges.last?.end ?? 0
     }
-    public func removes(_ word: Word) -> Bool {
-        cutRanges.contains { $0.contains((word.start + word.end) / 2) }
+    /// Strict majority of the word's duration, using the union so overlaps never double-count.
+    /// Zero-duration ASR tokens use half-open point membership; an exact 50% tie is kept.
+    public static func removes(_ word: Word, in ranges: [TimeRange]) -> Bool {
+        if word.end <= word.start { return ranges.contains { $0.contains(word.start) } }
+        let overlap = merge(ranges).reduce(0.0) { $0 + overlapDuration(word, range: $1) }
+        return overlap > (word.end - word.start) / 2 + 1e-9
+    }
+    public static func overlapDuration(_ word: Word, range: TimeRange) -> Double {
+        max(0, min(word.end, range.end) - max(word.start, range.start))
+    }
+    public func removes(_ word: Word) -> Bool { Self.removes(word, in: cutRanges) }
+
+    /// Attribute a removed word to the candidate covering most of it, even when a union of
+    /// several candidates supplies the majority. Kept words may show a disabled suggestion.
+    public func candidate(for word: Word, cuts: [CutCandidate]) -> CutCandidate? {
+        let removed = removes(word)
+        return cuts.filter { cut in
+            if removed { return cut.enabled && (Self.overlapDuration(word, range: cut.range) > 0 || (word.end <= word.start && cut.range.contains(word.start))) }
+            return !cut.enabled && Self.removes(word, in: [cut.range])
+        }.max { Self.overlapDuration(word, range: $0.range) < Self.overlapDuration(word, range: $1.range) }
+    }
+    /// Place a pause capsule before the first word classified as cut, including a boundary
+    /// inside that word. Otherwise insert after the partially retained word, in time order.
+    public func pauseInsertionIndex(_ cut: CutCandidate, words: [Word]) -> Int {
+        words.firstIndex { word in
+            word.start >= cut.sourceStart ||
+            ((cut.enabled ? removes(word) : Self.removes(word, in: [cut.range])) && Self.overlapDuration(word, range: cut.range) > 0)
+        } ?? words.count
     }
 }

@@ -109,9 +109,12 @@ final class TranscriptTextView: NSTextView {
         let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 9; paragraph.paragraphSpacing = 23
         let base: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
         let pauses = (project?.candidates ?? []).filter { $0.kind == .pause }.sorted { $0.sourceStart < $1.sourceStart }
-        var pauseIndex = 0
+        let mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: [])
+        let words = project?.transcript?.words ?? []
+        let pausesAtWord = Dictionary(grouping: pauses) { mapper.pauseInsertionIndex($0, words: words) }
+        var wordIndex = 0
         func pill(_ cut: CutCandidate) {
-            let attachment = NSTextAttachment(); attachment.attachmentCell = PauseCell(label: String(format: "Ⅱ %.1fs", cut.range.duration), enabled: cut.enabled)
+            let attachment = NSTextAttachment(); attachment.attachmentCell = PauseCell(label: cut.text, enabled: cut.enabled)
             let text = NSMutableAttributedString(attachment: attachment)
             text.addAttributes([.cutID: cut.id.uuidString, .pausePill: true, .paragraphStyle: paragraph], range: NSRange(location: 0, length: text.length))
             result.append(text); result.append(NSAttributedString(string: " ", attributes: base))
@@ -119,9 +122,9 @@ final class TranscriptTextView: NSTextView {
         for segment in project?.transcript?.segments ?? [] {
             timestamps.append((result.length, segment.start))
             for word in segment.words {
-                while pauseIndex < pauses.count && pauses[pauseIndex].sourceStart < word.start { pill(pauses[pauseIndex]); pauseIndex += 1 }
+                for cut in pausesAtWord[wordIndex] ?? [] { pill(cut) }; wordIndex += 1
                 var attributes = base
-                if let cut = project?.candidates.filter({ $0.range.contains((word.start + word.end) / 2) }).sorted(by: { $0.enabled && !$1.enabled }).first {
+                if let cut = mapper.candidate(for: word, cuts: project?.candidates ?? []) {
                     attributes[.cutID] = cut.id.uuidString
                     attributes[.foregroundColor] = cut.kind.nsColor.withAlphaComponent(cut.enabled ? 0.9 : 0.55)
                     if cut.enabled {
@@ -134,7 +137,7 @@ final class TranscriptTextView: NSTextView {
             }
             result.append(NSAttributedString(string: "\n", attributes: base))
         }
-        while pauseIndex < pauses.count { pill(pauses[pauseIndex]); pauseIndex += 1 }
+        for cut in pausesAtWord[wordIndex] ?? [] { pill(cut) }
         let selection = selectedRange(); textStorage?.setAttributedString(result)
         if NSMaxRange(selection) <= result.length { setSelectedRange(selection) }
         needsDisplay = true
