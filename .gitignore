@@ -10,3 +10,4 @@ xcuserdata/
 .env.*
 __pycache__/
 *.py[cod]
+.codex-prompts/
