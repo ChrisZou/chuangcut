@@ -37,6 +37,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(cuts.first!.sourceStart, 1.1, accuracy: 0.001)
         XCTAssertEqual(cuts.first!.sourceEnd, 2.4, accuracy: 0.001)
     }
+    func testSpeechCutsMeetAcousticPauses() {
+        let input = words("今天我们来聊。", from: 2) + words("今天我们来聊。", from: 5)
+        let cuts = CutDetector().detect(words: input, duration: 9, silences: [TimeRange(0.5, 2), TimeRange(3.2, 4.9)])
+        let retake = cuts.first { $0.kind == .retake }!
+        XCTAssertEqual(retake.sourceStart, 1.9, accuracy: 0.001)
+        XCTAssertEqual(retake.sourceEnd, 3.3, accuracy: 0.001)
+        XCTAssertEqual(TimelineMapper(duration: 9, cuts: cuts).cutRanges.count, 1)
+    }
+    func testRepeatedContextualFiller() {
+        let cuts = CutDetector().detect(words: words("那个那个，我们开始。"), duration: 5)
+        XCTAssertEqual(cuts.filter { $0.kind == .filler }.map(\.text), ["那个那个，"])
+    }
     func testTimelineMergesOverlapClampsAndHonorsDisabled() {
         let cuts = [CutCandidate(kind: .manual, start: -2, end: 2, reason: ""), CutCandidate(kind: .retake, start: 1, end: 3, reason: ""), CutCandidate(kind: .pause, start: 6, end: 8, reason: "", enabled: false), CutCandidate(kind: .manual, start: 9, end: 12, reason: "")]
         let map = TimelineMapper(duration: 10, cuts: cuts)
@@ -84,6 +96,18 @@ final class CoreTests: XCTestCase {
     func testCancellationBeforeLaunch() {
         let token = CancellationToken(); token.cancel()
         XCTAssertThrowsError(try ProcessRunner.run("/bin/echo", ["test"], cancellation: token)) { XCTAssertTrue($0 is CancellationError) }
+    }
+    func testCancellationTerminatesRunningProcess() {
+        let token = CancellationToken(), start = Date()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { token.cancel() }
+        XCTAssertThrowsError(try ProcessRunner.run("/bin/sleep", ["10"], cancellation: token)) { XCTAssertTrue($0 is CancellationError) }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3)
+    }
+    func testLeadingAndTrailingPauses() {
+        let cuts = CutDetector().detect(words: words("你好。", from: 2), duration: 5)
+        XCTAssertEqual(cuts.filter { $0.kind == .pause }.count, 2)
+        XCTAssertEqual(cuts.first!.sourceStart, 0.1, accuracy: 0.001)
+        XCTAssertEqual(cuts.last!.sourceEnd, 4.9, accuracy: 0.001)
     }
     func testNativeSubtitleSequence() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -38,7 +38,10 @@ public struct CutDetector {
         for clause in allClauses {
             let text = clause.map(\.text).joined(), norm = normalized(text)
             // Whole-clause matching protects e.g. “那个视频” and “这个软件”.
-            if fillers.contains(norm) {
+            let repeatedFiller = fillers.contains { filler in
+                !filler.isEmpty && norm.count >= filler.count * 2 && norm.replacingOccurrences(of: filler, with: "").isEmpty
+            }
+            if fillers.contains(norm) || repeatedFiller {
                 let start = clause.first!.start
                 let end = max(start + 0.02, clause.map(\.end).max()!)
                 candidates.append(CutCandidate(kind: .filler, start: max(0, start - 0.015), end: min(duration, end + 0.015), text: text, reason: "Isolated filler clause"))
@@ -78,6 +81,18 @@ public struct CutDetector {
                     }
                 }
                 if !matched { i += 1 }
+            }
+        }
+        // Join speech cuts to nearby acoustic pause cuts. This removes residual final phonemes
+        // when Whisper ends a segment slightly before the actual audio stops.
+        for i in candidates.indices where candidates[i].kind == .retake || candidates[i].kind == .filler {
+            for gap in silences where gap.duration >= settings.pauseThreshold {
+                if abs(gap.end - candidates[i].sourceStart) <= 0.25 {
+                    candidates[i].sourceStart = max(0, min(candidates[i].sourceStart, gap.end - settings.padding))
+                }
+                if abs(gap.start - candidates[i].sourceEnd) <= 0.25 {
+                    candidates[i].sourceEnd = min(duration, max(candidates[i].sourceEnd, gap.start + settings.padding))
+                }
             }
         }
         return candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
