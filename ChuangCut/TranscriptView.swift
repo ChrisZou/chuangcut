@@ -1,9 +1,7 @@
 import AppKit
 import ChuangCutCore
-import SwiftUI
 
 extension CutKind {
-    var tint: Color { Color(nsColor: nsColor) }
     var nsColor: NSColor {
         switch self {
         case .pause: return .systemBlue
@@ -91,21 +89,28 @@ private final class PauseCell: NSTextAttachmentCell {
             ])
     }
 }
-struct TranscriptView: NSViewRepresentable {
-    var model: EditorModel
-    func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
+/// Header, word count and the transcript text. Content and highlight observe the model separately,
+/// so the playhead tick never rebuilds the text.
+final class TranscriptPanel: ColorView {
+    private let model: EditorModel
+    private let count = NSTextField.label(11, mono: true, color: .tertiaryLabelColor)
+    private let scroll = NSScrollView()
+    private let text: TranscriptTextView
+    private let transcribe = NSButton(title: "Transcribe", target: nil, action: nil)
+    private var observers: [Observer] = []
+    init(model: EditorModel) {
+        self.model = model
         let container = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         let layout = RoundedLayoutManager()
         layout.addTextContainer(container)
         let storage = NSTextStorage()
         storage.addLayoutManager(layout)
-        let text = TranscriptTextView(frame: .zero, textContainer: container)
+        text = TranscriptTextView(frame: .zero, textContainer: container)
+        super.init(.textBackgroundColor)
         text.isEditable = false
         text.isSelectable = true
         text.isRichText = true
+        text.allowsUndo = false
         text.drawsBackground = false
         text.isVerticallyResizable = true
         text.isHorizontallyResizable = false
@@ -114,33 +119,73 @@ struct TranscriptView: NSViewRepresentable {
         container.lineFragmentPadding = 0
         text.textContainerInset = NSSize(width: 70, height: 20)
         text.setAccessibilityLabel("Transcript. Click words to select a clip; select text and press Delete to cut.")
+        // Dropped videos go to the window, not into the text.
+        text.unregisterDraggedTypes()
+        text.onSeek = { [weak model] in model?.seekWord($0) }
+        text.onToggle = { [weak model] in model?.toggle($0) }
+        text.onManual = { [weak model] in model?.manualCut($0) }
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
         scroll.documentView = text
-        return scroll
-    }
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let text = scroll.documentView as? TranscriptTextView else { return }
-        text.onFocus = { model.timelineFocused = false }
-        text.onSeek = model.seekWord
-        text.onToggle = model.toggle
-        text.onManual = model.manualCut
-        if text.revision != model.revision {
-            // Dragging a trim edge edits on every mouse event; coalesce the full relayout.
-            if model.isTrimming {
-                text.rebuildSoon(model)
-            } else {
-                text.rebuild(project: model.project, revision: model.revision)
-            }
+        transcribe.bezelStyle = .push
+        transcribe.keyEquivalent = "\r"
+        transcribe.target = self
+        transcribe.action = #selector(startTranscription)
+
+        let title = NSTextField.label(13, weight: .bold)
+        title.stringValue = "Transcript"
+        let hint = NSTextField.label(10, color: .secondaryLabelColor)
+        hint.stringValue = "Click word to seek · ⌥-click cut to toggle · Select + ⌫ to cut"
+        let line = separator()
+        for view in [title, count, hint, line, scroll, transcribe] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
         }
-        text.highlight(time: model.playhead, clip: model.selectedRange)
+        NSLayoutConstraint.activate([
+            title.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            count.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
+            count.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            hint.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
+            hint.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            hint.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -20),
+            line.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 14),
+            line.leadingAnchor.constraint(equalTo: leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: line.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            transcribe.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            transcribe.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+        ])
+        observers = [
+            Observer { [weak self] in self?.updateContent() },
+            Observer { [weak self] in
+                guard let self else { return }
+                text.highlight(time: model.playhead, clip: model.selectedRange)
+            },
+        ]
     }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    private func updateContent() {
+        let hasTranscript = model.project?.transcript != nil
+        scroll.isHidden = !hasTranscript
+        transcribe.isHidden = hasTranscript
+        transcribe.isEnabled = !model.busy
+        count.stringValue = model.spokenWordCount.map(String.init) ?? ""
+        guard text.revision != model.revision else { return }
+        // Dragging a trim edge edits on every mouse event; coalesce the full relayout.
+        if model.isTrimming {
+            text.rebuildSoon(model)
+        } else {
+            text.rebuild(project: model.project, revision: model.revision)
+        }
+    }
+    @objc private func startTranscription() { model.transcribe() }
 }
 final class TranscriptTextView: NSTextView {
     var revision = -1
-    var onFocus: (() -> Void)?
-    override func mouseDown(with event: NSEvent) {
-        onFocus?()
-        super.mouseDown(with: event)
-    }
     var onSeek: ((Double) -> Void)?
     var onToggle: ((UUID) -> Void)?
     var onManual: (([Word]) -> Void)?
@@ -148,6 +193,8 @@ final class TranscriptTextView: NSTextView {
     private var timestamps: [(Int, Double)] = []
     private var active: NSRange?
     private var selectedClip: TimeRange?
+    private var highlightTime = 0.0
+    private var highlightClip: TimeRange?
     private var contextCut: UUID?
     private var rebuildPending = false
     override func draw(_ dirtyRect: NSRect) {
@@ -186,6 +233,9 @@ final class TranscriptTextView: NSTextView {
         self.revision = revision
         active = nil
         selectedClip = nil
+        // Old ranges would point into the replaced text; highlight() below recomputes them.
+        (layoutManager as? RoundedLayoutManager)?.active = nil
+        (layoutManager as? RoundedLayoutManager)?.clipSelection = []
         wordRanges = []
         timestamps = []
         let result = NSMutableAttributedString(string: "")
@@ -243,6 +293,7 @@ final class TranscriptTextView: NSTextView {
         let selection = selectedRange()
         textStorage?.setAttributedString(result)
         if NSMaxRange(selection) <= result.length { setSelectedRange(selection) }
+        highlight(time: highlightTime, clip: highlightClip)
         needsDisplay = true
     }
     func rebuildSoon(_ model: EditorModel) {
@@ -255,6 +306,8 @@ final class TranscriptTextView: NSTextView {
         }
     }
     func highlight(time: Double, clip: TimeRange?) {
+        highlightTime = time
+        highlightClip = clip
         let next = wordRanges.first { time >= $0.0.start && time < $0.0.end && !$0.0.isPunctuation }?.1
         guard next != active || clip != selectedClip else { return }
         active = next

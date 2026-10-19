@@ -1,8 +1,8 @@
 import ChuangCutCore
 import SwiftUI
 
-struct SettingsView: View {
-    var model: EditorModel
+/// One view per Settings tab; AppKit hosts them in a toolbar-style tab view controller.
+struct ModelSettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @State private var found: [URL] = []
     @State private var modelName = ModelManager.recommended[0]
@@ -11,85 +11,54 @@ struct SettingsView: View {
     @State private var error: String?
     @State private var manager = ModelManager()
     var body: some View {
-        TabView {
-            Form {
-                Section("Whisper model") {
-                    HStack {
-                        TextField("Model path", text: $settings.modelPath)
-                        Button {
-                            chooseModel()
-                        } label: {
-                            Image(systemName: "folder")
-                        }.help("Choose model").accessibilityLabel("Choose model")
-                    }
-                    if !found.isEmpty {
-                        Picker("Installed", selection: $settings.modelPath) {
-                            if !found.contains(where: { $0.path == settings.modelPath }) {
-                                Text(
-                                    settings.modelPath.isEmpty
-                                        ? "Choose a model" : URL(fileURLWithPath: settings.modelPath).lastPathComponent
-                                ).tag(settings.modelPath)
-                            }
-                            ForEach(found, id: \.path) { Text($0.lastPathComponent).tag($0.path) }
-                        }
-                    }
-                    Picker("Download", selection: $modelName) {
-                        ForEach(ModelManager.recommended, id: \.self) {
+        Form {
+            Section("Whisper model") {
+                HStack {
+                    TextField("Model path", text: $settings.modelPath)
+                    Button {
+                        chooseModel()
+                    } label: {
+                        Image(systemName: "folder")
+                    }.help("Choose model").accessibilityLabel("Choose model")
+                }
+                if !found.isEmpty {
+                    Picker("Installed", selection: $settings.modelPath) {
+                        if !found.contains(where: { $0.path == settings.modelPath }) {
                             Text(
-                                $0.replacingOccurrences(of: "ggml-", with: "").replacingOccurrences(
-                                    of: ".bin", with: "")
-                            ).tag($0)
+                                settings.modelPath.isEmpty
+                                    ? "Choose a model" : URL(fileURLWithPath: settings.modelPath).lastPathComponent
+                            ).tag(settings.modelPath)
                         }
-                    }
-                    HStack {
-                        if downloading {
-                            ProgressView(value: progress)
-                            Button("Cancel") { manager.cancel() }
-                        } else {
-                            Button("Download") { download() }
-                            Spacer()
-                            Button {
-                                refresh(includeDownloads: true)
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                            }.help("Find models, including Downloads")
-                        }
+                        ForEach(found, id: \.path) { Text($0.lastPathComponent).tag($0.path) }
                     }
                 }
-                Section("Tools") {
-                    TextField("ffmpeg", text: $settings.ffmpegPath)
-                    TextField("whisper-cli", text: $settings.whisperPath)
-                }
-            }.formStyle(.grouped).tabItem { Label("Models", systemImage: "cpu") }
-            Form {
-                Picker("Language", selection: $settings.language) {
-                    Text("中文").tag("zh")
-                    Text("Auto").tag("auto")
-                    Text("English").tag("en")
-                    Text("日本語").tag("ja")
-                    Text("한국어").tag("ko")
-                    Text("Français").tag("fr")
-                    Text("Deutsch").tag("de")
-                    Text("Español").tag("es")
+                Picker("Download", selection: $modelName) {
+                    ForEach(ModelManager.recommended, id: \.self) {
+                        Text(
+                            $0.replacingOccurrences(of: "ggml-", with: "").replacingOccurrences(of: ".bin", with: "")
+                        ).tag($0)
+                    }
                 }
                 HStack {
-                    Text("Pause threshold")
-                    Slider(value: $settings.pause, in: 0.2...2, step: 0.05)
-                    Text(String(format: "%.2f s", settings.pause)).monospacedDigit().frame(width: 55)
+                    if downloading {
+                        ProgressView(value: progress)
+                        Button("Cancel") { manager.cancel() }
+                    } else {
+                        Button("Download") { download() }
+                        Spacer()
+                        Button {
+                            refresh(includeDownloads: true)
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }.help("Find models, including Downloads")
+                    }
                 }
-                HStack {
-                    Text("Keep padding")
-                    Slider(value: $settings.padding, in: 0...0.25, step: 0.01)
-                    Text(String(format: "%.2f s", settings.padding)).monospacedDigit().frame(width: 55)
-                }
-                TextField("Fillers", text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
-            }.formStyle(.grouped).tabItem { Label("Detection", systemImage: "waveform") }
-            VStack(spacing: 12) {
-                SubtitlePreview(model: model, thumbnails: model.thumbnails, style: settings.style).padding(
-                    .horizontal, 20)
-                Form { SubtitleStyleControls(style: $settings.style) }.formStyle(.grouped)
-            }.tabItem { Label("Subtitles", systemImage: "captions.bubble") }
-        }.padding(12).frame(width: 610, height: 570)
+            }
+            Section("Tools") {
+                TextField("ffmpeg", text: $settings.ffmpegPath)
+                TextField("whisper-cli", text: $settings.whisperPath)
+            }
+        }.formStyle(.grouped).frame(width: 610, height: 520)
             .task { refresh(includeDownloads: false) }
             .alert("Download failed", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK") { error = nil }
@@ -120,6 +89,45 @@ struct SettingsView: View {
             } catch { if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription } }
             downloading = false
         }
+    }
+}
+struct DetectionSettingsView: View {
+    @ObservedObject var settings = AppSettings.shared
+    var body: some View {
+        Form {
+            Picker("Language", selection: $settings.language) {
+                Text("中文").tag("zh")
+                Text("Auto").tag("auto")
+                Text("English").tag("en")
+                Text("日本語").tag("ja")
+                Text("한국어").tag("ko")
+                Text("Français").tag("fr")
+                Text("Deutsch").tag("de")
+                Text("Español").tag("es")
+            }
+            HStack {
+                Text("Pause threshold")
+                Slider(value: $settings.pause, in: 0.2...2, step: 0.05)
+                Text(String(format: "%.2f s", settings.pause)).monospacedDigit().frame(width: 55)
+            }
+            HStack {
+                Text("Keep padding")
+                Slider(value: $settings.padding, in: 0...0.25, step: 0.01)
+                Text(String(format: "%.2f s", settings.padding)).monospacedDigit().frame(width: 55)
+            }
+            TextField("Fillers", text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
+        }.formStyle(.grouped).frame(width: 610, height: 520)
+    }
+}
+struct SubtitleSettingsView: View {
+    var model: EditorModel
+    @ObservedObject var settings = AppSettings.shared
+    var body: some View {
+        VStack(spacing: 12) {
+            SubtitlePreview(model: model, thumbnails: model.thumbnails, style: settings.style).padding(
+                .horizontal, 20)
+            Form { SubtitleStyleControls(style: $settings.style) }.formStyle(.grouped)
+        }.padding(.top, 12).frame(width: 610, height: 520)
     }
 }
 struct SubtitleStyleControls: View {

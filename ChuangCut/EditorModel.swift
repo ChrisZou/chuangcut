@@ -3,7 +3,7 @@ import ChuangCutCore
 import SwiftUI
 
 /// Observation tracks each property separately, so the 30 Hz playhead only refreshes the views that
-/// read it instead of the sidebar, transcript and menus.
+/// read it instead of the sidebar and transcript.
 @MainActor @Observable final class EditorModel {
     var project: Project? {
         didSet {
@@ -16,7 +16,7 @@ import SwiftUI
         }
     }
     private(set) var mapper = TimelineMapper(duration: 0, cuts: [])
-    /// Changes only on open/close, so menus that need it are not rebuilt on every edit.
+    /// Changes only on open/close, so views that only need this are not refreshed on every edit.
     private(set) var hasProject = false
     private(set) var spokenWordCount: Int?
     static let zoomRange = 0.05...300.0
@@ -33,16 +33,13 @@ import SwiftUI
     let player = AVPlayer()
     let thumbnails = ThumbnailStore()
     let editUndoManager = UndoManager()
-    var timelineFocused = false
     var selectedSegment: Int?
     var selectedCandidate: UUID?
     var pointsPerSecond = 40.0
     var showRemoved = false
     var snapping = true
-    var showSettingsRequest = false
-    var undoVersion = 0
-    var fitRequest = 0
-    var confirmRetranscribe = false
+    /// Set by the app delegate; the `--show-settings` launch hook calls it.
+    @ObservationIgnored var openSettings: () -> Void = {}
     @ObservationIgnored private var playbackRequested = false
     @ObservationIgnored private var hooksApplied = false
     private var trimBaseline: EditSnapshot?
@@ -77,23 +74,6 @@ import SwiftUI
     private let saveQueue = DispatchQueue(label: "ChuangCut.save", qos: .utility)
     var busy: Bool { !stage.isEmpty }
     var isTrimming: Bool { trimBaseline != nil }
-    // UndoManager is not observable; reading undoVersion makes these refresh after each change.
-    var canUndo: Bool {
-        _ = undoVersion
-        return editUndoManager.canUndo
-    }
-    var canRedo: Bool {
-        _ = undoVersion
-        return editUndoManager.canRedo
-    }
-    var undoActionName: String {
-        _ = undoVersion
-        return editUndoManager.undoActionName
-    }
-    var redoActionName: String {
-        _ = undoVersion
-        return editUndoManager.redoActionName
-    }
     init() {
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.035, preferredTimescale: 600), queue: .main
@@ -140,7 +120,7 @@ import SwiftUI
         pause()
         seek(value("--seek").flatMap(Double.init) ?? 0)
         if args.contains("--show-export"), project != nil { showExport = true }
-        if args.contains("--show-settings") { showSettingsRequest = true }
+        if args.contains("--show-settings") { openSettings() }
     }
     private func tick(_ time: Double) {
         guard time.isFinite else { return }
@@ -187,7 +167,6 @@ import SwiftUI
         playhead = value
     }
     func seekWord(_ time: Double) {
-        timelineFocused = false
         selectSegment(at: time)
         seek(time)
     }
@@ -207,7 +186,9 @@ import SwiftUI
     }
     func togglePlayback() {
         guard !busy else { return }
-        if playbackRequested {
+        // isPlaying rather than playbackRequested: at the end the player has stopped by itself, and
+        // Space should restart from the beginning instead of pausing an already stopped player.
+        if isPlaying {
             pause()
         } else {
             if playhead >= (project?.media.duration ?? 0) - 0.05 { seek(0) }
@@ -269,11 +250,6 @@ import SwiftUI
     }
     static func clampZoom(_ value: Double) -> Double {
         min(zoomRange.upperBound, max(zoomRange.lowerBound, value))
-    }
-    /// Re-transcribing replaces detected cuts, so ask first when there is existing analysis.
-    func requestTranscribe() {
-        guard !busy, project != nil else { return }
-        if project?.transcript != nil { confirmRetranscribe = true } else { transcribe() }
     }
     func transcribe() {
         guard !busy, let project else { return }
@@ -382,7 +358,6 @@ import SwiftUI
         let old = previous ?? snapshot
         editUndoManager.registerUndo(withTarget: self) { target in target.restore(old, name: name) }
         editUndoManager.setActionName(name)
-        undoVersion += 1
     }
     private func restore(_ state: EditSnapshot, name: String) {
         recordUndo(name)
@@ -392,16 +367,6 @@ import SwiftUI
         project?.silences = state.silences
         selectedSegment = nil
         changed()
-    }
-    func undo() {
-        guard !busy else { return }
-        editUndoManager.undo()
-        undoVersion += 1
-    }
-    func redo() {
-        guard !busy else { return }
-        editUndoManager.redo()
-        undoVersion += 1
     }
     func beginTrim() {
         guard !busy else { return }

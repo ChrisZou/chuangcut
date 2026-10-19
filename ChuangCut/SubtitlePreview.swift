@@ -3,7 +3,7 @@ import SwiftUI
 
 struct SubtitlePreview: View {
     var model: EditorModel
-    @ObservedObject var thumbnails: ThumbnailStore
+    var thumbnails: ThumbnailStore
     var style: SubtitleStyle
     @State private var overlay: NSImage?
     var body: some View {

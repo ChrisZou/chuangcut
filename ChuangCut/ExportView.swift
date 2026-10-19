@@ -3,7 +3,6 @@ import SwiftUI
 
 struct ExportView: View {
     var model: EditorModel
-    @Environment(\.dismiss) private var dismiss
     @State private var output: URL?
     @State private var options = ExportOptions()
     @State private var styleExpanded = false
@@ -47,13 +46,13 @@ struct ExportView: View {
             }.formStyle(.grouped)
             SubtitlePreview(model: model, thumbnails: model.thumbnails, style: options.style)
             HStack {
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { model.showExport = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Export") {
                     if output == nil { chooseOutput() }
                     if let output {
                         model.export(to: output, options: options)
-                        dismiss()
+                        model.showExport = false
                     }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }

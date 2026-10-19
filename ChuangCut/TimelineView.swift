@@ -1,28 +1,106 @@
 import AppKit
 import ChuangCutCore
-import SwiftUI
 
-struct TimelineView: NSViewRepresentable {
-    var model: EditorModel
-    @ObservedObject var thumbnails: ThumbnailStore
-    func makeNSView(context: Context) -> TimelineScrollView {
+/// Header controls above the timeline canvas. The canvas has separate observers for its structure,
+/// plain redraws and the playhead, so playback never rebuilds clips.
+final class TimelinePanel: NSView {
+    private let model: EditorModel
+    private let canvas = TimelineCanvas()
+    private let mode = NSTextField.label(9, weight: .semibold, color: .secondaryLabelColor)
+    private let showRemoved = NSButton(checkboxWithTitle: "Show removed", target: nil, action: nil)
+    private let zoom = NSSlider()
+    private var observers: [Observer] = []
+    init(model: EditorModel) {
+        self.model = model
+        super.init(frame: .zero)
         let scroll = TimelineScrollView()
         scroll.hasHorizontalScroller = true
         scroll.hasVerticalScroller = false
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
-        let canvas = TimelineCanvas()
         canvas.model = model
         canvas.scroll = scroll
         scroll.documentView = canvas
         canvas.setAccessibilityLabel(
             "Video timeline. Select a clip, drag its edges to trim. Delete removes a selected clip.")
-        return scroll
+
+        let icon = NSImageView(image: .symbol("rectangle.stack", "Timeline", size: 11))
+        let title = NSTextField.label(12, weight: .semibold)
+        title.stringValue = "Timeline"
+        showRemoved.font = .systemFont(ofSize: 10)
+        showRemoved.target = self
+        showRemoved.action = #selector(toggleRemoved)
+        // Logarithmic so both a whole long video and frame-level detail are reachable.
+        zoom.minValue = log(EditorModel.zoomRange.lowerBound)
+        zoom.maxValue = log(EditorModel.zoomRange.upperBound)
+        zoom.isContinuous = true
+        zoom.target = self
+        zoom.action = #selector(zoomChanged)
+        zoom.setAccessibilityLabel("Timeline zoom")
+        func button(_ symbol: String, _ help: String, _ action: Selector) -> NSButton {
+            let button = NSButton(image: .symbol(symbol, help), target: self, action: action)
+            button.isBordered = false
+            button.toolTip = help
+            return button
+        }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let divider = separator(vertical: true)
+        let controls = NSStackView(views: [
+            icon, title, mode, spacer, showRemoved, divider,
+            button("minus.magnifyingglass", "Zoom out", #selector(zoomOut)), zoom,
+            button("plus.magnifyingglass", "Zoom in", #selector(zoomIn)),
+            button("arrow.left.and.right.righttriangle.left.righttriangle.right", "Fit timeline", #selector(fit)),
+        ])
+        controls.spacing = 12
+        controls.setCustomSpacing(6, after: icon)
+        controls.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
+        let header = barBackground()
+        header.addFilling(controls)
+        for view in [header, scroll] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: topAnchor),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: 40),
+            zoom.widthAnchor.constraint(equalToConstant: 110),
+            divider.heightAnchor.constraint(equalToConstant: 16),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scroll.heightAnchor.constraint(equalToConstant: 190),
+        ])
+        observers = [
+            Observer { [weak self] in
+                guard let self else { return }
+                mode.attributedStringValue = NSAttributedString(
+                    string: model.showRemoved ? "SOURCE" : "EDITED",
+                    attributes: [.kern: 1, .font: mode.font as Any, .foregroundColor: NSColor.secondaryLabelColor])
+                showRemoved.state = model.showRemoved ? .on : .off
+                zoom.doubleValue = log(model.pointsPerSecond)
+            },
+            Observer { [weak self] in self?.canvas.update() },
+            Observer { [weak self] in
+                guard let self else { return }
+                _ = (model.selectedSegment, model.peaks.count, model.thumbnails.generation)
+                canvas.needsDisplay = true
+            },
+            Observer { [weak self] in
+                guard let self else { return }
+                canvas.setPlayhead(model.playhead, playing: model.isPlaying)
+            },
+        ]
     }
-    func updateNSView(_ scroll: TimelineScrollView, context: Context) {
-        guard let canvas = scroll.documentView as? TimelineCanvas else { return }
-        canvas.update(model)
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func toggleRemoved() { model.showRemoved = showRemoved.state == .on }
+    @objc private func zoomChanged() { model.pointsPerSecond = EditorModel.clampZoom(exp(zoom.doubleValue)) }
+    @objc private func zoomOut() { model.pointsPerSecond = EditorModel.clampZoom(model.pointsPerSecond / 1.25) }
+    @objc private func zoomIn() { model.pointsPerSecond = EditorModel.clampZoom(model.pointsPerSecond * 1.25) }
+    @objc private func fit() { canvas.fitToWidth() }
 }
 final class TimelineScrollView: NSScrollView {
     override func layout() {
@@ -39,7 +117,7 @@ final class TimelineScrollView: NSScrollView {
         super.scrollWheel(with: event)
     }
 }
-final class TimelineCanvas: NSView {
+final class TimelineCanvas: NSView, NSMenuItemValidation {
     weak var model: EditorModel?
     weak var scroll: TimelineScrollView?
     private struct Clip {
@@ -61,7 +139,7 @@ final class TimelineCanvas: NSView {
     private var mapper = TimelineMapper(duration: 0, cuts: [])
     private var pps = 40.0
     private var removed = false
-    private var lastFit = 0
+    private var playhead = 0.0
     private var dragState: DragState?
     private var scrubbing = false
     private var lastSeek = 0.0
@@ -81,11 +159,11 @@ final class TimelineCanvas: NSView {
             x: inset + (removed ? clip.source.start : clip.position) * pps, y: trackY,
             width: max(1, clip.source.duration * pps), height: trackHeight)
     }
-    func update(_ model: EditorModel) {
+    /// Clip layout, zoom and source changes. Reads no playhead, so playback does not rerun it.
+    func update() {
+        guard let model else { return }
         let oldPPS = pps
-        let anchor = x(model.playhead)
-        let anchorOffset = anchor - visibleRect.minX
-        self.model = model
+        let anchorOffset = x(playhead) - visibleRect.minX
         mapper = model.mapper
         removed = model.showRemoved
         var cursor = 0.0
@@ -98,20 +176,23 @@ final class TimelineCanvas: NSView {
             sourcePath = model.project?.source
             scroll?.contentView.scroll(to: .zero)
         }
-        if lastFit != model.fitRequest, let scroll {
-            lastFit = model.fitRequest
-            let value = EditorModel.clampZoom((scroll.contentSize.width - inset * 2 - 60) / max(1, displayDuration))
-            pps = value
-            DispatchQueue.main.async { [weak model] in model?.pointsPerSecond = value }
-        }
         resizeCanvas()
-        if abs(oldPPS - pps) > 0.001, dragState == nil { scrollTo(x(model.playhead) - anchorOffset) }
-        if model.isPlaying && dragState == nil {
-            let head = x(model.playhead)
+        if abs(oldPPS - pps) > 0.001, dragState == nil { scrollTo(x(playhead) - anchorOffset) }
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+    }
+    func setPlayhead(_ time: Double, playing: Bool) {
+        playhead = time
+        if playing && dragState == nil {
+            let head = x(time)
             if head > visibleRect.maxX - 50 || head < visibleRect.minX + 15 { scrollTo(head - 70) }
         }
         needsDisplay = true
-        window?.invalidateCursorRects(for: self)
+    }
+    func fitToWidth() {
+        guard let scroll else { return }
+        model?.pointsPerSecond = EditorModel.clampZoom(
+            (scroll.contentSize.width - inset * 2 - 60) / max(1, displayDuration))
     }
     func resizeCanvas() {
         guard let scroll else { return }
@@ -237,7 +318,7 @@ final class TimelineCanvas: NSView {
                 path.stroke()
             }
         }
-        let head = x(model.playhead)
+        let head = x(playhead)
         cg.setStrokeColor(NSColor.systemRed.cgColor)
         cg.setLineWidth(1.5)
         cg.move(to: CGPoint(x: head, y: 21))
@@ -272,21 +353,22 @@ final class TimelineCanvas: NSView {
         }
     }
     private func drawWaveform(_ clip: Clip, rect: NSRect, dirty: NSRect, context: CGContext) {
-        guard let model, !model.peaks.isEmpty, mapper.duration > 0 else { return }
+        // One read: every access to an observable property goes through its registrar.
+        guard let peaks = model?.peaks, !peaks.isEmpty, mapper.duration > 0 else { return }
         context.setStrokeColor(NSColor(calibratedRed: 0.36, green: 0.85, blue: 0.77, alpha: 0.9).cgColor)
         context.setLineWidth(1)
         let startX = max(rect.minX, dirty.minX)
         let endX = min(rect.maxX, dirty.maxX)
-        let perSecond = Double(model.peaks.count) / mapper.duration
+        let perSecond = Double(peaks.count) / mapper.duration
         func bucket(_ x: Double) -> Int {
-            max(0, min(model.peaks.count - 1, Int((clip.source.start + (x - rect.minX) / pps) * perSecond)))
+            max(0, min(peaks.count - 1, Int((clip.source.start + (x - rect.minX) / pps) * perSecond)))
         }
         var px = startX
         while px < endX {
             // Each 2-point column shows the loudest peak it spans, so zooming out never hides speech.
             let first = bucket(px)
             let last = max(first, bucket(min(px + 2, endX)) - 1)
-            let amp = max(0.7, Double(model.peaks[first...last].max() ?? 0) * 14)
+            let amp = max(0.7, Double(peaks[first...last].max() ?? 0) * 14)
             context.move(to: CGPoint(x: px, y: rect.midY - amp))
             context.addLine(to: CGPoint(x: px, y: rect.midY + amp))
             px += 2
@@ -381,7 +463,6 @@ final class TimelineCanvas: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let model, !model.busy else { return }
         window?.makeFirstResponder(self)
-        model.timelineFocused = true
         let point = convert(event.locationInWindow, from: nil)
         if removed && event.modifierFlags.contains(.option),
             let cut = model.project?.candidates.first(where: { $0.range.contains((point.x - inset) / pps) })
@@ -485,6 +566,17 @@ final class TimelineCanvas: NSView {
         } else {
             super.keyDown(with: event)
         }
+    }
+    /// Menu commands with plain Delete and Escape shortcuts. They are only in the responder chain
+    /// while the timeline has focus, so the same keys still edit text elsewhere.
+    @objc func removeSelectedClip(_ sender: Any?) { model?.deleteSelectedClip() }
+    @objc func deselectClip(_ sender: Any?) {
+        model?.selectedSegment = nil
+        needsDisplay = true
+    }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard window?.isKeyWindow == true, let model, model.selectedSegment != nil else { return false }
+        return item.action != #selector(removeSelectedClip(_:)) || !model.busy
     }
     override func magnify(with event: NSEvent) {
         zoom(by: max(0.1, 1 + Double(event.magnification)), anchor: convert(event.locationInWindow, from: nil).x)

@@ -1,14 +1,15 @@
 import AVFoundation
 import AppKit
+import Observation
 
-@MainActor final class ThumbnailStore: ObservableObject {
-    @Published var poster: NSImage?
-    @Published var generation = 0
-    private var source: URL?
-    private var generator: AVAssetImageGenerator?
+@MainActor @Observable final class ThumbnailStore {
+    var poster: NSImage?
+    var generation = 0
+    @ObservationIgnored private var source: URL?
+    @ObservationIgnored private var generator: AVAssetImageGenerator?
     private let cache = NSCache<NSNumber, NSImage>()
-    private var pending = Set<Int>()
-    private var epoch = UUID()
+    @ObservationIgnored private var pending = Set<Int>()
+    @ObservationIgnored private var epoch = UUID()
     func load(_ url: URL) {
         guard source != url else { return }
         source = url

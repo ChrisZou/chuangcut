@@ -10,12 +10,15 @@
 		008EC526820280D24F5EE2A2 /* ExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A72C9FED46FAF26526A04E /* ExportView.swift */; };
 		0724D55408D581D36CE36D99 /* ChuangCutCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0615EE38AB870C4244BD6EA /* ChuangCutCore */; };
 		0D849B8895B9383B1B24EE43 /* ThumbnailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1AE70B57A29D71C231DBFA /* ThumbnailStore.swift */; };
-		1B2EE30F80A3842788E75EDB /* ChuangCutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41EC52CD0DDA3595FE34B39B /* ChuangCutApp.swift */; };
+		23BAED6D79533B29262CEFAC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F63701545A96550D4139DE13 /* AppDelegate.swift */; };
 		3C376DF9FDFC5556A0DF2245 /* MediaSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FE98597EB1EC9643ADFBB2A /* MediaSidebar.swift */; };
 		40AF4116F79A360D2F922DC1 /* SubtitlePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5A93CFF7C2A0C8D5B31FDC /* SubtitlePreview.swift */; };
+		5611379707C0274A40866960 /* PlayerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8413F4223FD352258A992ED3 /* PlayerPanel.swift */; };
+		5BD95BD3C6ABA5D250C3EEC5 /* AppKitSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA52DB4818C75D7994270FC /* AppKitSupport.swift */; };
 		606C5F7FB363047CB4D97B85 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */; };
 		79C2C7F1BFDF7B5441D86E67 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44081C3DE9B0AF161B4D7FC6 /* AppSettings.swift */; };
 		7C8E1CF0A423C7DD970D18C9 /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDE24DE9424D0A2CF11D31CA /* EditorModel.swift */; };
+		88860D04729C04FDB89E933E /* EditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6DCD64765456149E472A4B /* EditorWindowController.swift */; };
 		A412D351A3F96371E3B1A192 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9B52ED6DE517974EA9CCABA8 /* Assets.xcassets */; };
 		E7420D88B275938614CEF05B /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 672365DC876DC7C3F5440427 /* TranscriptView.swift */; };
 		FF15DDB6574774D8B73B68CD /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21710EE555607A4C042AAD10 /* TimelineView.swift */; };
@@ -25,17 +28,20 @@
 		1BC79258A5C5A921E2BA03FC /* ChuangCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChuangCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		21710EE555607A4C042AAD10 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		3E9C8C54956C1E81488251B7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		41EC52CD0DDA3595FE34B39B /* ChuangCutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChuangCutApp.swift; sourceTree = "<group>"; };
 		44081C3DE9B0AF161B4D7FC6 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		672365DC876DC7C3F5440427 /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptView.swift; sourceTree = "<group>"; };
+		8413F4223FD352258A992ED3 /* PlayerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerPanel.swift; sourceTree = "<group>"; };
 		89A72C9FED46FAF26526A04E /* ExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportView.swift; sourceTree = "<group>"; };
 		8FE98597EB1EC9643ADFBB2A /* MediaSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSidebar.swift; sourceTree = "<group>"; };
 		94ABF358141F2F1F281CF763 /* ChuangCutCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ChuangCutCore; path = Packages/ChuangCutCore; sourceTree = SOURCE_ROOT; };
 		9B52ED6DE517974EA9CCABA8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		9BA52DB4818C75D7994270FC /* AppKitSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppKitSupport.swift; sourceTree = "<group>"; };
+		CE6DCD64765456149E472A4B /* EditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowController.swift; sourceTree = "<group>"; };
 		DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		DC5A93CFF7C2A0C8D5B31FDC /* SubtitlePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitlePreview.swift; sourceTree = "<group>"; };
 		DDE24DE9424D0A2CF11D31CA /* EditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModel.swift; sourceTree = "<group>"; };
 		EF1AE70B57A29D71C231DBFA /* ThumbnailStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStore.swift; sourceTree = "<group>"; };
+		F63701545A96550D4139DE13 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,13 +84,16 @@
 		FDA9D2B1428EA973945A6B53 /* ChuangCut */ = {
 			isa = PBXGroup;
 			children = (
+				F63701545A96550D4139DE13 /* AppDelegate.swift */,
+				9BA52DB4818C75D7994270FC /* AppKitSupport.swift */,
 				44081C3DE9B0AF161B4D7FC6 /* AppSettings.swift */,
 				9B52ED6DE517974EA9CCABA8 /* Assets.xcassets */,
-				41EC52CD0DDA3595FE34B39B /* ChuangCutApp.swift */,
 				DDE24DE9424D0A2CF11D31CA /* EditorModel.swift */,
+				CE6DCD64765456149E472A4B /* EditorWindowController.swift */,
 				89A72C9FED46FAF26526A04E /* ExportView.swift */,
 				3E9C8C54956C1E81488251B7 /* Info.plist */,
 				8FE98597EB1EC9643ADFBB2A /* MediaSidebar.swift */,
+				8413F4223FD352258A992ED3 /* PlayerPanel.swift */,
 				DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */,
 				DC5A93CFF7C2A0C8D5B31FDC /* SubtitlePreview.swift */,
 				EF1AE70B57A29D71C231DBFA /* ThumbnailStore.swift */,
@@ -170,11 +179,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				23BAED6D79533B29262CEFAC /* AppDelegate.swift in Sources */,
+				5BD95BD3C6ABA5D250C3EEC5 /* AppKitSupport.swift in Sources */,
 				79C2C7F1BFDF7B5441D86E67 /* AppSettings.swift in Sources */,
-				1B2EE30F80A3842788E75EDB /* ChuangCutApp.swift in Sources */,
 				7C8E1CF0A423C7DD970D18C9 /* EditorModel.swift in Sources */,
+				88860D04729C04FDB89E933E /* EditorWindowController.swift in Sources */,
 				008EC526820280D24F5EE2A2 /* ExportView.swift in Sources */,
 				3C376DF9FDFC5556A0DF2245 /* MediaSidebar.swift in Sources */,
+				5611379707C0274A40866960 /* PlayerPanel.swift in Sources */,
 				606C5F7FB363047CB4D97B85 /* SettingsView.swift in Sources */,
 				40AF4116F79A360D2F922DC1 /* SubtitlePreview.swift in Sources */,
 				0D849B8895B9383B1B24EE43 /* ThumbnailStore.swift in Sources */,

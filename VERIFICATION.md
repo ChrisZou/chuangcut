@@ -125,3 +125,19 @@ Measured on the regenerated 28.5-minute recording (`~/code/ai/chuangcut-testdata
 - Project JSON is written on a serial background queue and flushed on quit. A relaunch restored the last toggle state.
 - Fixed a pre-existing preview-cuts freeze: seeking to a cut end such as 13.709604 s rounds to 13.7096 s at the 1/60000 timescale, which still lies inside the cut and re-triggered the skip. Playing from that point stalled on the old build and plays immediately now.
 - Native checks through accessibility: toggling a cut updated the sidebar count, duration, window subtitle and timeline; Edit showed **Undo Toggle cut** / **Redo Toggle cut**; one ⌘Z undid exactly one of two toggles; playback advanced the time labels, timeline playhead and transcript highlight; Export and Settings opened with the subtitle preview.
+
+## AppKit editor window
+
+The editor window (toolbar, split layout, sidebar, player, transcript, timeline, menus) is now AppKit; Settings and Export stay SwiftUI forms hosted in AppKit. Views subscribe to the `@Observable` model through a small `Observer` that reruns one update per main-loop turn, with separate observers per concern so the playhead tick never rebuilds clips, rows or text.
+
+| 28.5-minute recording, worst main-thread stall | SwiftUI shell (93706e7) | AppKit |
+|---|---:|---:|
+| Toggle one cut | 94–148 ms | 46–55 ms |
+| Undo | 109–118 ms | 52–70 ms |
+| 30 trim-drag events at 60 Hz | 0.77 s, worst 81–91 ms | 0.69 s, worst 36–40 ms |
+| Playback | worst 47–60 ms, ~22% main thread | worst 9–10 ms, ~16% main thread |
+
+- `swift test`: 36 tests, 0 failures. Debug `xcodebuild`: BUILD SUCCEEDED with no Swift warnings.
+- Native checks through accessibility on the fixture: toggling a cut updated the sidebar, durations, window subtitle and timeline; ⌘Z used the native Edit menu (**Redo Toggle cut**, **Undo Split clip**); Space, ←/→ and ⌘B worked; selecting a clip then Delete created a manual cut and Escape deselected it; dragging a clip edge trimmed a pause to 20.48 s with an **Adjusted** badge; selecting transcript text then Delete created a manual cut; sidebar row clicks seek, and the group checkbox toggles all fillers.
+- Space and Delete typed into the Export sheet's Font field and the Settings Fillers field instead of playing or removing clips. Escape closed the Export sheet. The Transcribe-again confirmation and its Cancel worked. The empty state, the processing bar and timeline auto-scroll during playback were checked on screen.
+- AVPlayerView's Live Text analysis of a paused frame used to take first responder from the timeline, which is why the old shell tracked timeline focus itself. It is now disabled (`allowsVideoFrameAnalysis = false`).

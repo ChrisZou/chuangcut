@@ -1,6 +1,6 @@
 # ChuangCut
 
-A native macOS editor for removing pauses, fillers, and earlier takes from spoken video. Processing stays on your Mac. V1 uses SwiftUI, AppKit, AVFoundation, whisper.cpp, and ffmpeg.
+A native macOS editor for removing pauses, fillers, and earlier takes from spoken video. Processing stays on your Mac. The editor window is AppKit; Settings and the Export sheet are SwiftUI forms. It uses AVFoundation, whisper.cpp, and ffmpeg.
 
 ## Build and run
 
@@ -30,7 +30,7 @@ The app opens the video, reuses a matching cached transcript, and detects cuts. 
 
 Screenshot hooks run after loading/analysis: `--seek <sourceSeconds>`, `--select-segment <zeroBasedIndex>`, repeatable `--trim <index>:<left|right>:<sourceSeconds>`, `--zoom <pointsPerSecond>`, `--show-export`, and `--show-settings`. `--appearance light|dark` changes only this app instance for screenshot testing. Opening and auto-transcription always start paused at zero unless `--seek` is supplied.
 
-To test dragging an **unselected** clip edge, launch with `--select-segment 0 --zoom 60`, then drag clip 3's right edge without clicking its body first. CLI/app `--trim` indices are zero-based; times in `--trim` and `--seek` are source seconds. Keyboard controls are Space (play/pause), ←/→ (±5 s), ⌘B (split), Delete (remove selected clip), Escape (deselect), ⌘Z / ⇧⌘Z (undo/redo).
+To test dragging an **unselected** clip edge, launch with `--select-segment 0 --zoom 60`, then drag clip 3's right edge without clicking its body first. CLI/app `--trim` indices are zero-based; times in `--trim` and `--seek` are source seconds. Keyboard controls are Space (play/pause), ←/→ (±5 s), ⌘B (split), Delete (remove selected clip), Escape (deselect), ⌘Z / ⇧⌘Z (undo/redo). Space and the arrows work whenever the editor window is key; Delete and Escape act on the timeline only while it has focus, so they still edit text in the transcript, the Export sheet and Settings.
 
 ## Editing
 
@@ -101,15 +101,18 @@ Outputs:
 
 ```text
 ChuangCut/                         Native app
-  ChuangCutApp.swift               Window, menus, transport and layout
+  AppDelegate.swift                App entry, main menu, Settings window
+  EditorWindowController.swift     Window, toolbar, split layout, alerts, export sheet, drop target
+  AppKitSupport.swift              Observer (model → AppKit updates) and small view helpers
   EditorModel.swift                Main-actor @Observable editor and playback coordination
+  PlayerPanel.swift                AVPlayerView stage and transport controls
+  MediaSidebar.swift               Media card and NSTableView of grouped cuts
   TranscriptView.swift             NSTextView range/word interactions
   TimelineView.swift               AppKit clip strips, trim handles, ruler and zoom
   ThumbnailStore.swift             Async AVAssetImageGenerator + bounded cache
-  MediaSidebar.swift               Media card and grouped candidate controls
-  SubtitlePreview.swift            Native subtitle raster over a video frame
-  SettingsView.swift               Models, downloads and preferences
-  ExportView.swift                 Export configuration and live preview
+  SubtitlePreview.swift            SwiftUI subtitle raster over a video frame
+  SettingsView.swift               SwiftUI Settings tabs: models, detection, subtitles
+  ExportView.swift                 SwiftUI export configuration and live preview
   AppSettings.swift                Persisted UI preferences
 Packages/ChuangCutCore/
   Sources/ChuangCutCore/
