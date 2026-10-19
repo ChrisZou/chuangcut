@@ -18,6 +18,14 @@ public struct Pipeline {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+    /// Earlier versions kept Whisper's WAV input in every cache directory; remove those copies.
+    public static func removeCachedAudio() {
+        let directories =
+            (try? FileManager.default.contentsOfDirectory(at: cacheRoot, includingPropertiesForKeys: nil)) ?? []
+        for directory in directories {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("audio.wav"))
+        }
+    }
     public static func save(_ project: Project) throws {
         try JSONFile.write(project, to: cacheDirectory(for: project.source).appendingPathComponent("project.json"))
     }
@@ -55,7 +63,9 @@ public struct Pipeline {
             progress("Cached transcript", 0.75)
         } else {
             progress("Extracting audio", 0.02)
-            let wav = cache.appendingPathComponent("audio.wav")
+            // The 16 kHz WAV is only Whisper's input (~115 MB per hour), so it is not kept in the cache.
+            let wav = FileManager.default.temporaryDirectory.appendingPathComponent("chuangcut-\(UUID()).wav")
+            defer { try? FileManager.default.removeItem(at: wav) }
             try ffmpeg.extractAudio(input, to: wav, cancellation: cancellation)
             transcript = try WhisperRunner(tools: tools).transcribe(
                 wav: wav, model: model, language: language,
@@ -67,9 +77,10 @@ public struct Pipeline {
         progress("Detecting cuts", 0.8)
         let silences = try ffmpeg.silence(
             input, threshold: settings.pauseThreshold, duration: media.duration, cancellation: cancellation)
+        let aligned = transcript.aligned(to: silences)
         let cuts = CutDetector(settings: settings).detect(
-            words: transcript.words, duration: media.duration, silences: silences)
-        let project = Project(source: input, media: media, transcript: transcript, candidates: cuts, silences: silences)
+            words: aligned.words, duration: media.duration, silences: silences)
+        let project = Project(source: input, media: media, transcript: aligned, candidates: cuts, silences: silences)
         try Self.save(project)
         progress("Ready", 1)
         return project

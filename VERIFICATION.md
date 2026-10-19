@@ -97,3 +97,12 @@ The existing model was used; a multi-gigabyte model was not re-downloaded solely
 - Screenshot: `~/code/ai/chuangcut-testdata/shots/refine-handles.png`.
 
 Exact edge regression: `chuangcut-cli test_zh.mp4 --out ~/code/ai/chuangcut-testdata/refine-edge --burn --trim 2:right:20.27` also passed. The continuous timeline is **15.014627 s** and both MP4s are **15.033333 s**, contain video/audio and fully decode. CLI prints `[x] pause 20.270–22.361 ⏸ 2.1s (adjusted)`. SRT excludes “重复的句子” and preserves “最后 导出剪辑好的视频” as a separate cue even though the preceding sentence's punctuation was cut.
+
+## Robustness and long-video fixes
+
+- `swift test`: **35 tests, 0 failures**. New `RobustnessTests` cover 额度/金额 not being treated as the 额 filler, reduplicated words (体验体验, 研究研究, 哈哈哈哈), parallel clauses, rotated video display size, word-to-silence alignment for quiet audio, subtitles without sentence punctuation, and a long synthetic transcript with a time bound.
+- The rewritten clause splitter and `TimelineMapper` binary search were compared against the previous implementations on 3,000 random transcripts; outputs were identical.
+- `Scripts/verify_fixture.py` still passes with `--trim-out`: **16.057356 s → 15.796772 s**, delta **−0.260584 s**.
+- A 28.5-minute synthetic Mandarin recording ran through the CLI with `--burn` in about 6 minutes: **1709.8 s → 1506.3 s**, 734 cues, both MP4s 1506.36 s. 额度 survives (70 cues), no isolated 嗯/那个 remain.
+- Main-thread stalls on that recording, old build → fixed build: toggling one cut **189.9 s → 0.20 s**, undo **130.5 s → 0.25 s**, loading a cached project **87.8 s → 0.46 s**.
+- A rotated phone recording now exports at its 720×1280 display size with subtitles placed for that frame. A quieter copy of the fixture now produces the same six subtitle cues as the original instead of dropping 今天 and 辑.

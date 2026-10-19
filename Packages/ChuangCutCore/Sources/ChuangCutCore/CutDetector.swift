@@ -1,13 +1,13 @@
 import Foundation
+import NaturalLanguage
 
 public struct CutDetector {
     public var settings: DetectionSettings
     public init(settings: DetectionSettings = DetectionSettings()) { self.settings = settings }
     private let delimiters = CharacterSet(charactersIn: "，。！？,.!?；;：:、\n")
+    private static let punctuationOrSpace = CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines)
     private func normalized(_ text: String) -> String {
-        text.lowercased().unicodeScalars.filter {
-            !CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).contains($0)
-        }.map(String.init).joined()
+        text.lowercased().unicodeScalars.filter { !Self.punctuationOrSpace.contains($0) }.map(String.init).joined()
     }
     public func clauses(_ words: [Word]) -> [[Word]] {
         var result: [[Word]] = []
@@ -71,10 +71,15 @@ public struct CutDetector {
             } else {
                 meaningful.append(clause)
                 // Unambiguous hesitation tokens can occur without punctuation.
-                for word in clause
-                where ["嗯", "呃", "额", "um", "uh", "er"].contains(normalized(word.text))
-                    && fillers.contains(normalized(word.text))
-                {
+                var offset = 0
+                for word in clause {
+                    defer { offset += word.text.count }
+                    let token = normalized(word.text)
+                    guard ["嗯", "呃", "额", "um", "uh", "er"].contains(token), fillers.contains(token) else { continue }
+                    // 额 is also part of ordinary words (额度, 金额, 名额, 额外); only a standalone one is a filler.
+                    if token.contains(where: isCJK), Self.wordLength(in: text, at: offset) > word.text.count {
+                        continue
+                    }
                     candidates.append(
                         CutCandidate(
                             kind: .filler, start: word.start, end: max(word.end, word.start + 0.02), text: word.text,
@@ -90,7 +95,7 @@ public struct CutDetector {
                 let later = meaningful[j]
                 guard later.first!.start - earlier.last!.end <= 10 else { break }
                 let b = normalized(later.map(\.text).joined())
-                if Self.similarity(a, b) >= 0.8 || (a.count >= 4 && b.hasPrefix(a)) {
+                if Self.similarity(a, b) >= 0.8 || (a.count >= 4 && b.hasPrefix(a)), !Self.isEnumeration(a, b) {
                     candidates.append(
                         CutCandidate(
                             kind: .retake, start: earlier.first!.start, end: earlier.last!.end,
@@ -105,6 +110,7 @@ public struct CutDetector {
         // Adjacent short phrase repetitions, including CJK character words and Latin words.
         for clause in meaningful {
             let spoken = clause.filter { !$0.isPunctuation }
+            let spokenText = spoken.map(\.text).joined()
             var i = 0
             while i < spoken.count {
                 var matched = false
@@ -117,6 +123,8 @@ public struct CutDetector {
                         let text = first.map(\.text).joined()
                         // A single repeated CJK character is often a legitimate reduplication (看看, 人人).
                         if size == 1 && text.count == 1 && text.first.map(isCJK) == true { continue }
+                        let offset = spoken[..<i].reduce(0) { $0 + $1.text.count }
+                        if Self.isReduplication(text, in: spokenText, at: offset) { continue }
                         candidates.append(
                             CutCandidate(
                                 kind: .retake, start: first.first!.start, end: first.last!.end, text: text,
@@ -142,6 +150,41 @@ public struct CutDetector {
             }
         }
         return candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
+    }
+    /// Length of the segmented word containing the character at `offset`.
+    static func wordLength(in text: String, at offset: Int) -> Int {
+        guard offset < text.count else { return 0 }
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        return text[tokenizer.tokenRange(at: text.index(text.startIndex, offsetBy: offset))].count
+    }
+    /// Chinese doubles words on purpose: 哈哈哈哈 (laughter), 体验体验 / 研究研究 (verb reduplication),
+    /// 谢谢谢谢 (emphasis). Stutters such as 我们我们 or 这个这个 are pronouns, conjunctions or partial words.
+    static func isReduplication(_ unit: String, in text: String, at offset: Int) -> Bool {
+        guard unit.contains(where: isCJK), offset < text.count else { return false }
+        if Set(unit).count == 1 { return true }
+        let tagger = NLTagger(tagSchemes: [.lexicalClass])
+        tagger.string = text
+        let (tag, range) = tagger.tag(
+            at: text.index(text.startIndex, offsetBy: offset), unit: .word, scheme: .lexicalClass)
+        let word = text[range]
+        return word.count >= unit.count * 2 || (word == unit && tag == .verb)
+    }
+    private static let enumerationMarkers = ["首先", "其次", "再次", "然后", "接着", "最后", "另外", "此外"]
+    /// Parallel list items (第一个…/第二个…, 首先…/其次…) differ only in their ordinal, so they read like
+    /// a near-identical retake but are separate content.
+    static func isEnumeration(_ lhs: String, _ rhs: String) -> Bool {
+        var counts: [Character: Int] = [:]
+        for character in lhs { counts[character, default: 0] += 1 }
+        for character in rhs { counts[character, default: 0] -= 1 }
+        // Both sides must carry their own numeral (第一 ↔ 第二); a numeral present on one side only, as in
+        // 聊一聊 → 聊, is an ordinary rewording of a retake.
+        let numerals = Set("0123456789零一二三四五六七八九十两百千万")
+        let differing = counts.filter { $0.value != 0 && numerals.contains($0.key) }.values
+        if differing.contains(where: { $0 > 0 }) && differing.contains(where: { $0 < 0 }) { return true }
+        let left = enumerationMarkers.first { lhs.hasPrefix($0) }
+        let right = enumerationMarkers.first { rhs.hasPrefix($0) }
+        return left != nil && right != nil && left != right
     }
     public static func similarity(_ lhs: String, _ rhs: String) -> Double {
         let a = Array(lhs)

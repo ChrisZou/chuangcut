@@ -7,6 +7,13 @@ import UniformTypeIdentifiers
 /// Native transparent subtitle frames; no libass or drawtext dependency.
 public enum SubtitleRenderer {
     public static func render(text: String, style: SubtitleStyle, width: Int, height: Int, to url: URL) throws {
+        let image = try image(text: text, style: style, width: width, height: height)
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+        else { throw ChuangCutError.message("Cannot write subtitle PNG") }
+        CGImageDestinationAddImage(destination, image, nil)
+        if !CGImageDestinationFinalize(destination) { throw ChuangCutError.message("Subtitle PNG write failed") }
+    }
+    public static func image(text: String, style: SubtitleStyle, width: Int, height: Int) throws -> CGImage {
         guard
             let context = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
@@ -39,11 +46,8 @@ public enum SubtitleRenderer {
             context.setTextDrawingMode(.fill)
             CTLineDraw(line, context)
         }
-        guard let image = context.makeImage(),
-            let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
-        else { throw ChuangCutError.message("Cannot write subtitle PNG") }
-        CGImageDestinationAddImage(destination, image, nil)
-        if !CGImageDestinationFinalize(destination) { throw ChuangCutError.message("Subtitle PNG write failed") }
+        guard let image = context.makeImage() else { throw ChuangCutError.message("Cannot render subtitle") }
+        return image
     }
     public static func makeSequence(
         cues: [SubtitleCue], style: SubtitleStyle, width: Int, height: Int, duration: Double, directory: URL,

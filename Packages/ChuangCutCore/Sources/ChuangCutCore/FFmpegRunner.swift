@@ -15,7 +15,10 @@ public struct FFmpegRunner {
         let result = try ProcessRunner.run(
             tools.ffprobe, ["-v", "error", "-show_format", "-show_streams", "-of", "json", input.path],
             cancellation: cancellation)
-        guard let root = try JSONSerialization.jsonObject(with: result.stdout) as? [String: Any],
+        return try Self.mediaInfo(probeJSON: result.stdout)
+    }
+    public static func mediaInfo(probeJSON: Data) throws -> MediaInfo {
+        guard let root = try JSONSerialization.jsonObject(with: probeJSON) as? [String: Any],
             let streams = root["streams"] as? [[String: Any]],
             let video = streams.first(where: { $0["codec_type"] as? String == "video" })
         else { throw ChuangCutError.message("No video stream found") }
@@ -24,10 +27,23 @@ public struct FFmpegRunner {
         guard duration > 0 else { throw ChuangCutError.message("Video duration is unavailable") }
         let fraction = (video["avg_frame_rate"] as? String ?? "0/1").split(separator: "/").compactMap { Double($0) }
         let fps = fraction.count == 2 && fraction[1] > 0 ? fraction[0] / fraction[1] : 0
+        // Phones store portrait video as landscape pixels plus a display rotation. ffmpeg's filters
+        // autorotate, so subtitles, previews and the player must all use the displayed size.
+        var width = video["width"] as? Int ?? 1280
+        var height = video["height"] as? Int ?? 720
+        if Int(displayRotation(video).magnitude) % 180 == 90 { swap(&width, &height) }
         return MediaInfo(
-            duration: duration, width: video["width"] as? Int ?? 1280, height: video["height"] as? Int ?? 720,
+            duration: duration, width: width, height: height,
             bitrate: Int(video["bit_rate"] as? String ?? format["bit_rate"] as? String ?? "4000000") ?? 4_000_000,
             hasAudio: streams.contains { $0["codec_type"] as? String == "audio" }, frameRate: fps)
+    }
+    static func displayRotation(_ stream: [String: Any]) -> Double {
+        let sideData = stream["side_data_list"] as? [[String: Any]] ?? []
+        if let rotation = sideData.lazy.compactMap({ ($0["rotation"] as? NSNumber)?.doubleValue }).first {
+            return rotation.rounded()
+        }
+        let tags = stream["tags"] as? [String: Any] ?? [:]
+        return Double(tags["rotate"] as? String ?? "0") ?? 0
     }
     public func extractAudio(_ input: URL, to output: URL, cancellation: CancellationToken) throws {
         _ = try ProcessRunner.run(
@@ -66,7 +82,8 @@ public struct FFmpegRunner {
         if let start { result.append(TimeRange(start, duration)) }
         return result
     }
-    public func waveform(_ input: URL, buckets: Int = 3000, cancellation: CancellationToken) throws -> [Float] {
+    /// Peaks at a fixed time resolution, so long videos keep word-level detail on the timeline.
+    public func waveform(_ input: URL, peaksPerSecond: Int = 100, cancellation: CancellationToken) throws -> [Float] {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("chuangcut-wave-\(UUID()).pcm")
         defer { try? FileManager.default.removeItem(at: temp) }
         _ = try ProcessRunner.run(
@@ -75,7 +92,7 @@ public struct FFmpegRunner {
             cancellation: cancellation)
         let data = try Data(contentsOf: temp, options: .mappedIfSafe)
         let count = data.count / 2
-        let strideSize = max(1, count / max(1, buckets))
+        let strideSize = max(1, 8000 / max(1, peaksPerSecond))
         return data.withUnsafeBytes { raw in
             let samples = raw.bindMemory(to: Int16.self)
             var peaks: [Float] = []
@@ -112,7 +129,7 @@ public struct FFmpegRunner {
         let partial = staging.appendingPathComponent("output.mp4")
         let builder = SubtitleBuilder(style: options.style)
         let cues = builder.build(
-            words: project.transcript?.words ?? [], mapper: mapper,
+            transcript: project.transcript, mapper: mapper,
             fillers: project.candidates.filter { $0.kind == .filler })
         var args = ["-y", "-hide_banner", "-i", project.source.path]
         var filters: [String] = []

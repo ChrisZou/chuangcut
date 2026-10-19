@@ -100,7 +100,7 @@ final class TimelineCanvas: NSView {
         }
         if lastFit != model.fitRequest, let scroll {
             lastFit = model.fitRequest
-            let value = max(5, min(300, (scroll.contentSize.width - inset * 2) / max(1, displayDuration)))
+            let value = EditorModel.clampZoom((scroll.contentSize.width - inset * 2 - 60) / max(1, displayDuration))
             pps = value
             DispatchQueue.main.async { [weak model] in model?.pointsPerSecond = value }
         }
@@ -157,9 +157,15 @@ final class TimelineCanvas: NSView {
                 let tileRect = NSRect(x: box.minX + Double(tile) * tileWidth, y: box.minY, width: tileWidth, height: 64)
                 let source = min(clip.source.end - 0.001, clip.source.start + Double(tile) * tileWidth / pps)
                 requests.append(source)
-                if let image = model.thumbnails.image(at: source) {
+                if let image = model.thumbnails.image(at: source), image.size.width > 0, image.size.height > 0 {
+                    // Center-crop to the tile's aspect so portrait footage is not squashed.
+                    let scale = max(tileRect.width / image.size.width, tileRect.height / image.size.height)
+                    let crop = NSSize(width: tileRect.width / scale, height: tileRect.height / scale)
+                    let from = NSRect(
+                        x: (image.size.width - crop.width) / 2, y: (image.size.height - crop.height) / 2,
+                        width: crop.width, height: crop.height)
                     image.draw(
-                        in: tileRect, from: .zero, operation: .sourceOver, fraction: 0.88, respectFlipped: true,
+                        in: tileRect, from: from, operation: .sourceOver, fraction: 0.88, respectFlipped: true,
                         hints: nil)
                 }
             }
@@ -271,11 +277,16 @@ final class TimelineCanvas: NSView {
         context.setLineWidth(1)
         let startX = max(rect.minX, dirty.minX)
         let endX = min(rect.maxX, dirty.maxX)
+        let perSecond = Double(model.peaks.count) / mapper.duration
+        func bucket(_ x: Double) -> Int {
+            max(0, min(model.peaks.count - 1, Int((clip.source.start + (x - rect.minX) / pps) * perSecond)))
+        }
         var px = startX
         while px < endX {
-            let source = clip.source.start + (px - rect.minX) / pps
-            let bucket = max(0, min(model.peaks.count - 1, Int(source / mapper.duration * Double(model.peaks.count))))
-            let amp = max(0.7, Double(model.peaks[bucket]) * 14)
+            // Each 2-point column shows the loudest peak it spans, so zooming out never hides speech.
+            let first = bucket(px)
+            let last = max(first, bucket(min(px + 2, endX)) - 1)
+            let amp = max(0.7, Double(model.peaks[first...last].max() ?? 0) * 14)
             context.move(to: CGPoint(x: px, y: rect.midY - amp))
             context.addLine(to: CGPoint(x: px, y: rect.midY + amp))
             px += 2
@@ -482,7 +493,7 @@ final class TimelineCanvas: NSView {
         guard let model else { return }
         let offset = anchor - visibleRect.minX
         let time = (anchor - inset) / pps
-        let value = max(5, min(300, pps * factor))
+        let value = EditorModel.clampZoom(pps * factor)
         pps = value
         model.pointsPerSecond = value
         resizeCanvas()

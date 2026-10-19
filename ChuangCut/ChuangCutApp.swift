@@ -136,7 +136,8 @@ struct ContentView: View {
                 tool("Import", "plus", action: model.chooseFile).disabled(model.busy)
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                tool("Transcribe", "text.bubble", action: model.transcribe).disabled(model.project == nil || model.busy)
+                tool("Transcribe", "text.bubble", action: model.requestTranscribe).disabled(
+                    model.project == nil || model.busy)
                 tool("Detect", "wand.and.stars", action: model.detect).disabled(
                     model.project?.transcript == nil || model.busy)
                 Toggle(isOn: $model.previewCuts) { Label("Preview", systemImage: "play.rectangle") }.toggleStyle(
@@ -156,6 +157,14 @@ struct ContentView: View {
                 openSettings()
                 model.showSettingsRequest = false
             }
+        }
+        .alert("Transcribe again?", isPresented: $model.confirmRetranscribe) {
+            Button("Transcribe") { model.transcribe() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Detected cuts and their trims will be replaced by a new analysis. Manual cuts and splits are kept, "
+                    + "and you can undo with ⌘Z.")
         }
         .alert("ChuangCut", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
@@ -198,13 +207,17 @@ struct ContentView: View {
                 Toggle("Show removed", isOn: $model.showRemoved).toggleStyle(.checkbox).font(.caption)
                 Divider().frame(height: 16)
                 Button {
-                    model.pointsPerSecond = max(5, model.pointsPerSecond / 1.25)
+                    model.pointsPerSecond = EditorModel.clampZoom(model.pointsPerSecond / 1.25)
                 } label: {
                     Image(systemName: "minus.magnifyingglass")
                 }.help("Zoom out")
-                Slider(value: $model.pointsPerSecond, in: 5...300).frame(width: 110).accessibilityLabel("Timeline zoom")
+                // Logarithmic so both a whole long video and frame-level detail are reachable.
+                Slider(
+                    value: Binding(get: { log(model.pointsPerSecond) }, set: { model.pointsPerSecond = exp($0) }),
+                    in: log(EditorModel.zoomRange.lowerBound)...log(EditorModel.zoomRange.upperBound)
+                ).frame(width: 110).accessibilityLabel("Timeline zoom")
                 Button {
-                    model.pointsPerSecond = min(300, model.pointsPerSecond * 1.25)
+                    model.pointsPerSecond = EditorModel.clampZoom(model.pointsPerSecond * 1.25)
                 } label: {
                     Image(systemName: "plus.magnifyingglass")
                 }.help("Zoom in")

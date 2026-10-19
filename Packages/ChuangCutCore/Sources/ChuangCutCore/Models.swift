@@ -23,11 +23,8 @@ public struct Word: Codable, Identifiable, Equatable, Sendable {
         self.end = end
         self.confidence = confidence
     }
-    public var isPunctuation: Bool {
-        text.unicodeScalars.allSatisfy {
-            CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).contains($0)
-        }
-    }
+    private static let punctuationOrSpace = CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines)
+    public var isPunctuation: Bool { text.unicodeScalars.allSatisfy { Self.punctuationOrSpace.contains($0) } }
 }
 public typealias Token = Word
 public struct Segment: Codable, Identifiable, Equatable, Sendable {

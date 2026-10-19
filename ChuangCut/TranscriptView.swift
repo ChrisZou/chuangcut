@@ -123,7 +123,14 @@ struct TranscriptView: NSViewRepresentable {
         text.onSeek = model.seekWord
         text.onToggle = model.toggle
         text.onManual = model.manualCut
-        if text.revision != model.revision { text.rebuild(project: model.project, revision: model.revision) }
+        if text.revision != model.revision {
+            // Dragging a trim edge edits on every mouse event; coalesce the full relayout.
+            if model.isTrimming {
+                text.rebuildSoon(model)
+            } else {
+                text.rebuild(project: model.project, revision: model.revision)
+            }
+        }
         text.highlight(time: model.playhead, clip: model.selectedRange)
     }
 }
@@ -142,6 +149,7 @@ final class TranscriptTextView: NSTextView {
     private var active: NSRange?
     private var selectedClip: TimeRange?
     private var contextCut: UUID?
+    private var rebuildPending = false
     override func draw(_ dirtyRect: NSRect) {
         NSGraphicsContext.saveGraphicsState()
         super.draw(dirtyRect)
@@ -185,6 +193,7 @@ final class TranscriptTextView: NSTextView {
         let mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: [])
         let words = project?.transcript?.words ?? []
         let pausesAtWord = Dictionary(grouping: pauses) { mapper.pauseInsertionIndex($0, words: words) }
+        let wordCuts = mapper.candidates(for: words, cuts: project?.candidates ?? [])
         var wordIndex = 0
         func pill(_ cut: CutCandidate) {
             let attachment = NSTextAttachment()
@@ -200,9 +209,10 @@ final class TranscriptTextView: NSTextView {
             timestamps.append((result.length, segment.start))
             for word in segment.words {
                 for cut in pausesAtWord[wordIndex] ?? [] { pill(cut) }
+                let wordCut = wordCuts[wordIndex]
                 wordIndex += 1
                 var attributes = base
-                if let cut = mapper.candidate(for: word, cuts: project?.candidates ?? []) {
+                if let cut = wordCut {
                     attributes[.cutID] = cut.id.uuidString
                     attributes[.foregroundColor] = cut.kind.nsColor.withAlphaComponent(cut.enabled ? 0.9 : 0.55)
                     if cut.enabled {
@@ -226,8 +236,17 @@ final class TranscriptTextView: NSTextView {
         if NSMaxRange(selection) <= result.length { setSelectedRange(selection) }
         needsDisplay = true
     }
+    func rebuildSoon(_ model: EditorModel) {
+        guard !rebuildPending else { return }
+        rebuildPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self, weak model] in
+            guard let self, let model else { return }
+            self.rebuildPending = false
+            if self.revision != model.revision { self.rebuild(project: model.project, revision: model.revision) }
+        }
+    }
     func highlight(time: Double, clip: TimeRange?) {
-        let next = wordRanges.first { !$0.0.isPunctuation && time >= $0.0.start && time < $0.0.end }?.1
+        let next = wordRanges.first { time >= $0.0.start && time < $0.0.end && !$0.0.isPunctuation }?.1
         guard next != active || clip != selectedClip else { return }
         active = next
         selectedClip = clip

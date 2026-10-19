@@ -29,17 +29,28 @@ struct SubtitlePreview: View {
             }
     }
     private func render() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("chuangcut-preview-\(UUID()).png")
-        defer { try? FileManager.default.removeItem(at: url) }
         let project = model.project
-        let cues = SubtitleBuilder(style: style).build(
-            words: project?.transcript?.words ?? [], mapper: model.mapper,
-            fillers: project?.candidates.filter { $0.kind == .filler } ?? [])
-        do {
-            try SubtitleRenderer.render(
-                text: cues.first?.text ?? "字幕预览 Subtitle preview", style: style, width: project?.media.width ?? 1280,
-                height: project?.media.height ?? 720, to: url)
-            if let data = try? Data(contentsOf: url) { overlay = NSImage(data: data) }
-        } catch { overlay = nil }
+        let cue = SubtitleBuilder(style: style).build(
+            transcript: project?.transcript, mapper: model.mapper,
+            fillers: project?.candidates.filter { $0.kind == .filler } ?? [], maxCues: 1
+        ).first
+        // A proportionally scaled canvas looks identical in a 150-point preview and avoids
+        // rasterizing a full 4K frame on every slider change.
+        let width = Double(project?.media.width ?? 1280)
+        let height = Double(project?.media.height ?? 720)
+        let scale = min(1, 1280 / max(width, height))
+        var scaled = style
+        scaled.fontSize *= scale
+        scaled.outline *= scale
+        scaled.bottomMargin *= scale
+        guard
+            let image = try? SubtitleRenderer.image(
+                text: cue?.text ?? "字幕预览 Subtitle preview", style: scaled, width: Int(width * scale),
+                height: Int(height * scale))
+        else {
+            overlay = nil
+            return
+        }
+        overlay = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 }

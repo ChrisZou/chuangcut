@@ -3,7 +3,12 @@ import ChuangCutCore
 import SwiftUI
 
 @MainActor final class EditorModel: ObservableObject {
-    @Published var project: Project?
+    @Published var project: Project? {
+        // Derived once per edit; views and the playback tick read it many times per frame.
+        didSet { mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: []) }
+    }
+    private(set) var mapper = TimelineMapper(duration: 0, cuts: [])
+    static let zoomRange = 0.05...300.0
     @Published var peaks: [Float] = []
     @Published var playhead = 0.0
     @Published var isPlaying = false
@@ -26,15 +31,20 @@ import SwiftUI
     @Published var showSettingsRequest = false
     @Published var undoVersion = 0
     @Published var fitRequest = 0
+    @Published var confirmRetranscribe = false
     private var playbackRequested = false
     private var hooksApplied = false
     private var trimBaseline: EditSnapshot?
     private struct EditSnapshot {
         var cuts: [CutCandidate]
         var splits: [Double]
+        var transcript: Transcript?
+        var silences: [TimeRange]
     }
     private var snapshot: EditSnapshot {
-        EditSnapshot(cuts: project?.candidates ?? [], splits: project?.splitPoints ?? [])
+        EditSnapshot(
+            cuts: project?.candidates ?? [], splits: project?.splitPoints ?? [], transcript: project?.transcript,
+            silences: project?.silences ?? [])
     }
     var selectedRange: TimeRange? {
         guard let i = selectedSegment, mapper.keptRanges.indices.contains(i) else { return nil }
@@ -53,9 +63,9 @@ import SwiftUI
     private var cancellation = CancellationToken()
     private var started = false
     var busy: Bool { !stage.isEmpty }
+    var isTrimming: Bool { trimBaseline != nil }
     var canUndo: Bool { editUndoManager.canUndo }
     var canRedo: Bool { editUndoManager.canRedo }
-    var mapper: TimelineMapper { project?.mapper ?? TimelineMapper(duration: 0, cuts: []) }
     init() {
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.035, preferredTimescale: 600), queue: .main
@@ -66,6 +76,7 @@ import SwiftUI
     func launchArguments() {
         guard !started else { return }
         started = true
+        Task.detached(priority: .background) { Pipeline.removeCachedAudio() }
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--appearance"), i + 1 < args.count {
             NSApp.appearance = NSAppearance(named: args[i + 1] == "dark" ? .darkAqua : .aqua)
@@ -93,7 +104,7 @@ import SwiftUI
             }
         }
         if let value = value("--zoom"), let zoom = Double(value), zoom.isFinite {
-            pointsPerSecond = max(5, min(300, zoom))
+            pointsPerSecond = Self.clampZoom(zoom)
         }
         if let value = value("--select-segment"), let index = Int(value), mapper.keptRanges.indices.contains(index) {
             selectedSegment = index
@@ -223,8 +234,17 @@ import SwiftUI
             } catch { finish(error) }
         }
     }
+    static func clampZoom(_ value: Double) -> Double {
+        min(zoomRange.upperBound, max(zoomRange.lowerBound, value))
+    }
+    /// Re-transcribing replaces detected cuts, so ask first when there is existing analysis.
+    func requestTranscribe() {
+        guard !busy, project != nil else { return }
+        if project?.transcript != nil { confirmRetranscribe = true } else { transcribe() }
+    }
     func transcribe() {
         guard !busy, let project else { return }
+        let previous = snapshot
         let settings = AppSettings.shared
         let tools = settings.tools
         let detection = settings.detection
@@ -252,10 +272,13 @@ import SwiftUI
                         }
                     }
                 }.value
-                self.project = analyzed
-                editUndoManager.removeAllActions()
-                revision += 1
-                rebuildBoundaries()
+                var merged = analyzed
+                merged.candidates = Self.keepingManualCuts(
+                    from: self.project?.candidates ?? [], in: analyzed.candidates)
+                merged.splitPoints = self.project?.splitPoints
+                if previous.transcript != nil { recordUndo("Transcribe", previous: previous) }
+                self.project = merged
+                changed()
                 stage = ""
                 pause()
                 seek(0)
@@ -279,18 +302,25 @@ import SwiftUI
                     let silences = try FFmpegRunner(tools: tools).silence(
                         project.source, threshold: settings.pauseThreshold, duration: project.media.duration,
                         cancellation: token)
+                    let aligned = transcript.aligned(to: silences)
                     return (
                         silences,
                         CutDetector(settings: settings).detect(
-                            words: transcript.words, duration: project.media.duration, silences: silences)
+                            words: aligned.words, duration: project.media.duration, silences: silences),
+                        aligned
                     )
                 }.value
+                self.project?.transcript = result.2
                 self.project?.silences = result.0
-                self.project?.candidates = result.1
+                self.project?.candidates = Self.keepingManualCuts(from: project.candidates, in: result.1)
                 changed()
                 stage = ""
             } catch { finish(error) }
         }
+    }
+    /// Manual cuts are the user's own source-time edits, independent of the transcript and detection.
+    private static func keepingManualCuts(from old: [CutCandidate], in detected: [CutCandidate]) -> [CutCandidate] {
+        (detected + old.filter { $0.kind == .manual }).sorted { $0.sourceStart < $1.sourceStart }
     }
     func toggle(_ id: UUID) {
         guard !busy, let i = project?.candidates.firstIndex(where: { $0.id == id }) else { return }
@@ -325,6 +355,8 @@ import SwiftUI
         recordUndo(name)
         project?.candidates = state.cuts
         project?.splitPoints = state.splits
+        project?.transcript = state.transcript
+        project?.silences = state.silences
         selectedSegment = nil
         changed()
     }

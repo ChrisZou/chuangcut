@@ -1,0 +1,143 @@
+import XCTest
+
+@testable import ChuangCutCore
+
+/// Real-world cases beyond the synthetic fixture: everyday Chinese that resembles fillers or
+/// retakes, phone footage, imprecise Whisper boundaries, and long recordings.
+final class RobustnessTests: XCTestCase {
+    func words(_ sentences: [String], gap: Double = 0.3) -> [Word] {
+        var time = 0.0
+        var result: [Word] = []
+        for sentence in sentences {
+            for character in sentence {
+                result.append(Word(text: String(character), start: time, end: time + 0.2))
+                time += 0.2
+            }
+            time += gap
+        }
+        return result
+    }
+    func speechCuts(_ sentences: [String], gap: Double = 0.3) -> [String] {
+        let input = words(sentences, gap: gap)
+        return CutDetector().detect(words: input, duration: input.last!.end + 0.3).filter { $0.kind != .pause }
+            .map { "\($0.kind.rawValue):\($0.text)" }
+    }
+
+    func testHesitationCharacterInsideWordsIsKept() {
+        XCTAssertEqual(speechCuts(["Claude的免费额度用完了，", "这个金额不算高。"]), [])
+        XCTAssertEqual(speechCuts(["名额有限，", "还有额外的功能。"]), [])
+        XCTAssertEqual(speechCuts(["我们额先看一下。"]), ["filler:额"])
+        XCTAssertEqual(speechCuts(["额我觉得可以。"]), ["filler:额"])
+    }
+    func testReduplicationAndLaughterAreNotStutters() {
+        XCTAssertEqual(speechCuts(["我们来体验体验这个功能。", "大家可以研究研究。"]), [])
+        XCTAssertEqual(speechCuts(["哈哈哈哈，太好笑了。"]), [])
+        XCTAssertEqual(speechCuts(["我们我们开始吧，", "这个这个功能很好。"]), ["retake:我们", "retake:这个"])
+    }
+    func testParallelListItemsAreNotRetakes() {
+        XCTAssertEqual(speechCuts(["第一个优点是速度快，", "第二个优点是速度快，", "第三个优点是价格低。"]), [])
+        XCTAssertEqual(speechCuts(["首先打开设置页面，", "其次打开设置页面。"]), [])
+        // Rewording that drops a numeral on one side only is still a retake.
+        XCTAssertEqual(speechCuts(["今天我们来聊一聊视频剪辑。", "今天我们来聊视频剪辑。"]), ["retake:今天我们来聊一聊视频剪辑。"])
+        XCTAssertEqual(speechCuts(["第一个优点是", "第一个优点是速度快。"], gap: 1), ["retake:第一个优点是"])
+    }
+
+    func testRotatedPhoneVideoUsesDisplaySize() throws {
+        func info(_ stream: String) throws -> MediaInfo {
+            let json =
+                #"{"format":{"duration":"10.0","bit_rate":"5000000"},"streams":[{"codec_type":"video","width":1920,"height":1080,"avg_frame_rate":"30/1",\#(stream)},{"codec_type":"audio"}]}"#
+            return try FFmpegRunner.mediaInfo(probeJSON: Data(json.utf8))
+        }
+        let rotated = try info(#""side_data_list":[{"side_data_type":"Display Matrix","rotation":-90}]"#)
+        XCTAssertEqual([rotated.width, rotated.height], [1080, 1920])
+        let legacy = try info(#""tags":{"rotate":"270"}"#)
+        XCTAssertEqual([legacy.width, legacy.height], [1080, 1920])
+        let upsideDown = try info(#""side_data_list":[{"rotation":180}]"#)
+        XCTAssertEqual([upsideDown.width, upsideDown.height], [1920, 1080])
+    }
+
+    /// Whisper reported 今 at 2.72–3.83 although speech resumed at 4.56, and 辑 inside the next pause.
+    func testWordsAreAlignedToAcousticSilence() {
+        let segment = Segment(
+            start: 2.72, end: 7.22, text: "今天我们剪辑",
+            words: [
+                Word(text: "今", start: 2.72, end: 3.83), Word(text: "天", start: 3.83, end: 4.95),
+                Word(text: "我", start: 4.95, end: 5.13), Word(text: "们", start: 5.13, end: 6.75),
+                Word(text: "剪", start: 6.75, end: 6.96), Word(text: "辑", start: 6.96, end: 7.22),
+            ])
+        let silences = [TimeRange(2.71, 4.56), TimeRange(6.88, 8.22)]
+        let aligned = Transcript(segments: [segment]).aligned(to: silences).words
+        XCTAssertEqual(aligned.map(\.start), [4.56, 4.755, 4.95, 5.13, 6.75, 6.815], accuracy: 1e-9)
+        XCTAssertEqual(aligned.map(\.end), [4.755, 4.95, 5.13, 6.75, 6.815, 6.88], accuracy: 1e-9)
+
+        // With the pause cuts applied, every spoken word survives into the subtitles.
+        let cuts = silences.map { CutCandidate(kind: .pause, start: $0.start + 0.1, end: $0.end - 0.1, reason: "") }
+        let mapper = TimelineMapper(duration: 9, cuts: cuts)
+        XCTAssertEqual(SubtitleBuilder().build(words: aligned, mapper: mapper).map(\.text).joined(), "今天我们剪辑")
+        XCTAssertNotEqual(
+            SubtitleBuilder().build(words: segment.words, mapper: mapper).map(\.text).joined(), "今天我们剪辑")
+    }
+    /// Whisper sometimes emits no sentence-final punctuation for Chinese at all.
+    func testSegmentsEndSubtitleSentencesWithoutPunctuation() {
+        let first = words(["大家好欢迎来到我的频道"])
+        let second = words(["今天我们来聊视频剪辑"]).map { Word(text: $0.text, start: $0.start + 2.3, end: $0.end + 2.3) }
+        let transcript = Transcript(segments: [
+            Segment(start: 0, end: 2.2, text: "大家好欢迎来到我的频道", words: first),
+            Segment(start: 2.3, end: 4.3, text: "今天我们来聊视频剪辑", words: second),
+        ])
+        let cues = SubtitleBuilder().build(transcript: transcript, mapper: TimelineMapper(duration: 5, cuts: []))
+        XCTAssertEqual(cues.map(\.text), ["大家好欢迎来到我的频道", "今天我们来聊视频剪辑"])
+    }
+    func testWholeSegmentInsideSilenceIsLeftAlone() {
+        let words = [Word(text: "嗯", start: 1, end: 1.5), Word(text: "啊", start: 1.5, end: 2)]
+        let aligned = Transcript(segments: [Segment(start: 1, end: 2, text: "嗯啊", words: words)])
+            .aligned(to: [TimeRange(0.5, 3)])
+        XCTAssertEqual(aligned.words, words)
+    }
+
+    func testBatchCandidateLookupAndPreviewMatchFullComputation() {
+        let input = words(["今天我们来聊视频剪辑，", "首先导入一段视频。", "然后自动识别停顿。"], gap: 0.8)
+        var cuts = [
+            CutCandidate(kind: .pause, start: 2.1, end: 2.8, reason: ""),
+            CutCandidate(kind: .retake, start: 0.4, end: 1.3, reason: ""),
+            CutCandidate(kind: .manual, start: 3.9, end: 4.6, reason: ""),
+        ]
+        cuts[2].enabled = false
+        let mapper = TimelineMapper(duration: 10, cuts: cuts)
+        XCTAssertEqual(
+            mapper.candidates(for: input, cuts: cuts).map(\.?.id),
+            input.map { mapper.candidate(for: $0, cuts: cuts)?.id })
+        let all = SubtitleBuilder().build(words: input, mapper: mapper)
+        XCTAssertEqual(SubtitleBuilder().build(words: input, mapper: mapper, maxCues: 1), Array(all.prefix(1)))
+    }
+    /// A 30-minute talk without sentence-final punctuation used to take minutes to lay out.
+    func testLongRecordingStaysInteractive() {
+        var input: [Word] = []
+        var cuts: [CutCandidate] = []
+        var time = 0.0
+        while time < 1800 {
+            for _ in 0..<24 {
+                input.append(Word(text: "字", start: time, end: time + 0.22))
+                time += 0.22
+            }
+            input.append(Word(text: "，", start: time, end: time))
+            cuts.append(CutCandidate(kind: .pause, start: time + 0.1, end: time + 0.7, reason: ""))
+            time += 0.8
+        }
+        let mapper = TimelineMapper(duration: time, cuts: cuts)
+        let started = Date()
+        _ = mapper.candidates(for: input, cuts: cuts)
+        for cut in cuts { _ = mapper.pauseInsertionIndex(cut, words: input) }
+        XCTAssertFalse(SubtitleBuilder().build(words: input, mapper: mapper, maxCues: 1).isEmpty)
+        XCTAssertGreaterThan(SubtitleBuilder().build(words: input, mapper: mapper).count, 400)
+        // Generous bound for unoptimized test builds; the quadratic versions took far longer.
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+    }
+}
+
+private func XCTAssertEqual(
+    _ lhs: [Double], _ rhs: [Double], accuracy: Double, file: StaticString = #filePath, line: UInt = #line
+) {
+    XCTAssertEqual(lhs.count, rhs.count, file: file, line: line)
+    for (a, b) in zip(lhs, rhs) { XCTAssertEqual(a, b, accuracy: accuracy, file: file, line: line) }
+}
