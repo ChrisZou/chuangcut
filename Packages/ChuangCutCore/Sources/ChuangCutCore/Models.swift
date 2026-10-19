@@ -3,7 +3,10 @@ import Foundation
 public struct TimeRange: Codable, Equatable, Sendable {
     public var start: Double
     public var end: Double
-    public init(_ start: Double, _ end: Double) { self.start = start; self.end = end }
+    public init(_ start: Double, _ end: Double) {
+        self.start = start
+        self.end = end
+    }
     public var duration: Double { max(0, end - start) }
     public func contains(_ time: Double) -> Bool { time >= start && time < end }
 }
@@ -14,9 +17,17 @@ public struct Word: Codable, Identifiable, Equatable, Sendable {
     public var end: Double
     public var confidence: Double
     public init(text: String, start: Double, end: Double, confidence: Double = 1, id: UUID = UUID()) {
-        self.id = id; self.text = text; self.start = start; self.end = end; self.confidence = confidence
+        self.id = id
+        self.text = text
+        self.start = start
+        self.end = end
+        self.confidence = confidence
     }
-    public var isPunctuation: Bool { text.unicodeScalars.allSatisfy { CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).contains($0) } }
+    public var isPunctuation: Bool {
+        text.unicodeScalars.allSatisfy {
+            CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).contains($0)
+        }
+    }
 }
 public typealias Token = Word
 public struct Segment: Codable, Identifiable, Equatable, Sendable {
@@ -25,16 +36,27 @@ public struct Segment: Codable, Identifiable, Equatable, Sendable {
     public var end: Double
     public var text: String
     public var words: [Word]
-    public init(start: Double, end: Double, text: String, words: [Word]) { self.start = start; self.end = end; self.text = text; self.words = words }
+    public init(start: Double, end: Double, text: String, words: [Word]) {
+        self.start = start
+        self.end = end
+        self.text = text
+        self.words = words
+    }
 }
 public struct Transcript: Codable, Equatable, Sendable {
     public var segments: [Segment]
     public var language: String
-    public init(segments: [Segment], language: String = "zh") { self.segments = segments; self.language = language; normalizePunctuation() }
+    public init(segments: [Segment], language: String = "zh") {
+        self.segments = segments
+        self.language = language
+        normalizePunctuation()
+    }
     enum CodingKeys: String, CodingKey { case segments, language }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(segments: try c.decode([Segment].self, forKey: .segments), language: try c.decodeIfPresent(String.self, forKey: .language) ?? "zh")
+        self.init(
+            segments: try c.decode([Segment].self, forKey: .segments),
+            language: try c.decodeIfPresent(String.self, forKey: .language) ?? "zh")
     }
     public var words: [Word] { segments.flatMap(\.words) }
 }
@@ -49,7 +71,13 @@ public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {
     public var enabled: Bool
     public var isAdjusted: Bool? = nil
     public init(kind: CutKind, start: Double, end: Double, text: String = "", reason: String, enabled: Bool = true) {
-        self.kind = kind; sourceStart = start; sourceEnd = end; self.text = text; self.reason = reason; self.enabled = enabled; refreshPauseText()
+        self.kind = kind
+        sourceStart = start
+        sourceEnd = end
+        self.text = text
+        self.reason = reason
+        self.enabled = enabled
+        refreshPauseText()
     }
     private mutating func refreshPauseText() {
         if kind == .pause { text = String(format: "⏸ %.1fs", max(0, sourceEnd - sourceStart)) }
@@ -57,7 +85,10 @@ public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey { case id, kind, sourceStart, sourceEnd, text, reason, enabled, isAdjusted }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(kind: try c.decode(CutKind.self, forKey: .kind), start: try c.decode(Double.self, forKey: .sourceStart), end: try c.decode(Double.self, forKey: .sourceEnd), text: try c.decode(String.self, forKey: .text), reason: try c.decode(String.self, forKey: .reason), enabled: try c.decode(Bool.self, forKey: .enabled))
+        self.init(
+            kind: try c.decode(CutKind.self, forKey: .kind), start: try c.decode(Double.self, forKey: .sourceStart),
+            end: try c.decode(Double.self, forKey: .sourceEnd), text: try c.decode(String.self, forKey: .text),
+            reason: try c.decode(String.self, forKey: .reason), enabled: try c.decode(Bool.self, forKey: .enabled))
         id = try c.decode(UUID.self, forKey: .id)
         isAdjusted = try c.decodeIfPresent(Bool.self, forKey: .isAdjusted)
     }
@@ -79,7 +110,10 @@ public struct SubtitleStyle: Codable, Equatable, Sendable {
     public var latinLineLength = 42
     public var replaceInnerPunctuationWithSpaces = true
     public init() {}
-    enum CodingKeys: String, CodingKey { case fontName, fontSize, colorHex, outline, bottomMargin, cjkLineLength, latinLineLength, replaceInnerPunctuationWithSpaces }
+    enum CodingKeys: String, CodingKey {
+        case fontName, fontSize, colorHex, outline, bottomMargin, cjkLineLength, latinLineLength,
+            replaceInnerPunctuationWithSpaces
+    }
     public init(from decoder: Decoder) throws {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -90,7 +124,8 @@ public struct SubtitleStyle: Codable, Equatable, Sendable {
         bottomMargin = try c.decodeIfPresent(Double.self, forKey: .bottomMargin) ?? bottomMargin
         cjkLineLength = try c.decodeIfPresent(Int.self, forKey: .cjkLineLength) ?? cjkLineLength
         latinLineLength = try c.decodeIfPresent(Int.self, forKey: .latinLineLength) ?? latinLineLength
-        replaceInnerPunctuationWithSpaces = try c.decodeIfPresent(Bool.self, forKey: .replaceInnerPunctuationWithSpaces) ?? true
+        replaceInnerPunctuationWithSpaces =
+            try c.decodeIfPresent(Bool.self, forKey: .replaceInnerPunctuationWithSpaces) ?? true
     }
 }
 public struct MediaInfo: Codable, Sendable {
@@ -108,21 +143,37 @@ public struct Project: Codable, Sendable {
     public var candidates: [CutCandidate]
     public var silences: [TimeRange]
     public var splitPoints: [Double]? = nil
-    public init(source: URL, media: MediaInfo, transcript: Transcript? = nil, candidates: [CutCandidate] = [], silences: [TimeRange] = []) {
-        self.source = source; self.media = media; self.transcript = transcript; self.candidates = candidates; self.silences = silences
+    public init(
+        source: URL, media: MediaInfo, transcript: Transcript? = nil, candidates: [CutCandidate] = [],
+        silences: [TimeRange] = []
+    ) {
+        self.source = source
+        self.media = media
+        self.transcript = transcript
+        self.candidates = candidates
+        self.silences = silences
     }
-    public var mapper: TimelineMapper { TimelineMapper(duration: media.duration, cuts: candidates, splits: splitPoints ?? []) }
+    public var mapper: TimelineMapper {
+        TimelineMapper(duration: media.duration, cuts: candidates, splits: splitPoints ?? [])
+    }
 }
 public enum ChuangCutError: LocalizedError {
     case message(String)
-    public var errorDescription: String? { if case .message(let text) = self { return text }; return nil }
+    public var errorDescription: String? {
+        if case .message(let text) = self { return text }
+        return nil
+    }
 }
 public enum JSONFile {
     public static func write<T: Encodable>(_ value: T, to url: URL) throws {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(value).write(to: url, options: .atomic)
     }
 }
 public func isCJK(_ character: Character) -> Bool {
-    character.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) || (0x20000...0x3134F).contains($0.value) || (0x3040...0x30FF).contains($0.value) || (0xAC00...0xD7AF).contains($0.value) }
+    character.unicodeScalars.contains {
+        (0x3400...0x9FFF).contains($0.value) || (0x20000...0x3134F).contains($0.value)
+            || (0x3040...0x30FF).contains($0.value) || (0xAC00...0xD7AF).contains($0.value)
+    }
 }

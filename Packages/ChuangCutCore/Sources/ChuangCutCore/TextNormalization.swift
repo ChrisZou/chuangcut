@@ -12,13 +12,14 @@ public enum TextNormalization {
         return String(text.map { map[$0] ?? $0 })
     }
 }
-public extension Transcript {
-    mutating func normalizePunctuation() {
+extension Transcript {
+    public mutating func normalizePunctuation() {
         for i in segments.indices {
             let dominant = TextNormalization.isCJKDominant(segments[i].text)
             segments[i].text = TextNormalization.cjkPunctuation(segments[i].text, dominant: dominant)
             for j in segments[i].words.indices {
-                segments[i].words[j].text = TextNormalization.cjkPunctuation(segments[i].words[j].text, dominant: dominant)
+                segments[i].words[j].text = TextNormalization.cjkPunctuation(
+                    segments[i].words[j].text, dominant: dominant)
             }
         }
     }
