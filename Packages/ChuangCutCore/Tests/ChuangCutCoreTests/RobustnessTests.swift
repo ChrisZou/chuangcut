@@ -110,6 +110,31 @@ final class RobustnessTests: XCTestCase {
         let all = SubtitleBuilder().build(words: input, mapper: mapper)
         XCTAssertEqual(SubtitleBuilder().build(words: input, mapper: mapper, maxCues: 1), Array(all.prefix(1)))
     }
+    func testBatchPauseInsertionMatchesSingleLookup() {
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<300 {
+            // Unsorted, overlapping and zero-length words exercise the running-maximum search.
+            var input: [Word] = []
+            var time = 0.0
+            for _ in 0..<Int.random(in: 0...40, using: &generator) {
+                time += Double.random(in: -0.2...0.5, using: &generator)
+                input.append(Word(text: "字", start: time, end: time + Double.random(in: 0...0.6, using: &generator)))
+            }
+            var cuts: [CutCandidate] = []
+            for _ in 0..<Int.random(in: 0...8, using: &generator) {
+                let start = Double.random(in: -1...(time + 1), using: &generator)
+                var cut = CutCandidate(
+                    kind: .pause, start: start, end: start + Double.random(in: 0.05...1.5, using: &generator),
+                    reason: "")
+                cut.enabled = Bool.random(using: &generator)
+                cuts.append(cut)
+            }
+            let mapper = TimelineMapper(duration: time + 3, cuts: cuts)
+            XCTAssertEqual(
+                mapper.pauseInsertionIndices(cuts, words: input),
+                cuts.map { mapper.pauseInsertionIndex($0, words: input) })
+        }
+    }
     /// A 30-minute talk without sentence-final punctuation used to take minutes to lay out.
     func testLongRecordingStaysInteractive() {
         var input: [Word] = []
@@ -127,7 +152,7 @@ final class RobustnessTests: XCTestCase {
         let mapper = TimelineMapper(duration: time, cuts: cuts)
         let started = Date()
         _ = mapper.candidates(for: input, cuts: cuts)
-        for cut in cuts { _ = mapper.pauseInsertionIndex(cut, words: input) }
+        _ = mapper.pauseInsertionIndices(cuts, words: input)
         XCTAssertFalse(SubtitleBuilder().build(words: input, mapper: mapper, maxCues: 1).isEmpty)
         XCTAssertGreaterThan(SubtitleBuilder().build(words: input, mapper: mapper).count, 400)
         // Generous bound for unoptimized test builds; the quadratic versions took far longer.

@@ -138,4 +138,31 @@ public struct TimelineMapper: Sendable {
                     && (cut.enabled ? removes(word) : Self.removes(word, in: [cut.range])))
         } ?? words.count
     }
+    /// `pauseInsertionIndex(_:words:)` for many cuts. Running maxima of word starts and ends are
+    /// monotonic, so binary search finds the first word at or after the cut and the first word that
+    /// can overlap it; only the few words in between need the full check.
+    public func pauseInsertionIndices(_ cuts: [CutCandidate], words: [Word]) -> [Int] {
+        var maxStart: [Double] = []
+        var maxEnd: [Double] = []
+        maxStart.reserveCapacity(words.count)
+        maxEnd.reserveCapacity(words.count)
+        for word in words {
+            maxStart.append(max(maxStart.last ?? -.infinity, word.start))
+            maxEnd.append(max(maxEnd.last ?? -.infinity, word.end))
+        }
+        return cuts.map { cut in
+            let after = Self.firstIndex(count: words.count) { maxStart[$0] >= cut.sourceStart }
+            var index = Self.firstIndex(count: after) { maxEnd[$0] > cut.sourceStart }
+            while index < after {
+                let word = words[index]
+                if Self.overlapDuration(word, range: cut.range) > 0
+                    && (cut.enabled ? removes(word) : Self.removes(word, in: [cut.range]))
+                {
+                    return index
+                }
+                index += 1
+            }
+            return after
+        }
+    }
 }

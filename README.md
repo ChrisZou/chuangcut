@@ -102,7 +102,7 @@ Outputs:
 ```text
 ChuangCut/                         Native app
   ChuangCutApp.swift               Window, menus, transport and layout
-  EditorModel.swift                Main-actor editor and playback coordination
+  EditorModel.swift                Main-actor @Observable editor and playback coordination
   TranscriptView.swift             NSTextView range/word interactions
   TimelineView.swift               AppKit clip strips, trim handles, ruler and zoom
   ThumbnailStore.swift             Async AVAssetImageGenerator + bounded cache

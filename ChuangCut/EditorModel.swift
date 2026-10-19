@@ -2,38 +2,49 @@ import AVKit
 import ChuangCutCore
 import SwiftUI
 
-@MainActor final class EditorModel: ObservableObject {
-    @Published var project: Project? {
-        // Derived once per edit; views and the playback tick read it many times per frame.
-        didSet { mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: []) }
+/// Observation tracks each property separately, so the 30 Hz playhead only refreshes the views that
+/// read it instead of the sidebar, transcript and menus.
+@MainActor @Observable final class EditorModel {
+    var project: Project? {
+        didSet {
+            // Derived once per edit; views and the playback tick read it many times per frame.
+            mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: [])
+            if (project == nil) != (oldValue == nil) { hasProject = project != nil }
+            if project?.transcript != oldValue?.transcript {
+                spokenWordCount = project?.transcript?.words.filter { !$0.isPunctuation }.count
+            }
+        }
     }
     private(set) var mapper = TimelineMapper(duration: 0, cuts: [])
+    /// Changes only on open/close, so menus that need it are not rebuilt on every edit.
+    private(set) var hasProject = false
+    private(set) var spokenWordCount: Int?
     static let zoomRange = 0.05...300.0
-    @Published var peaks: [Float] = []
-    @Published var playhead = 0.0
-    @Published var isPlaying = false
-    @Published var previewCuts = true
-    @Published var stage = ""
-    @Published var progress = 0.0
-    @Published var error: String?
-    @Published var showExport = false
-    @Published var revision = 0
-    @Published var exportedURL: URL?
+    var peaks: [Float] = []
+    var playhead = 0.0
+    var isPlaying = false
+    var previewCuts = true
+    var stage = ""
+    var progress = 0.0
+    var error: String?
+    var showExport = false
+    var revision = 0
+    var exportedURL: URL?
     let player = AVPlayer()
     let thumbnails = ThumbnailStore()
     let editUndoManager = UndoManager()
-    @Published var timelineFocused = false
-    @Published var selectedSegment: Int?
-    @Published var selectedCandidate: UUID?
-    @Published var pointsPerSecond = 40.0
-    @Published var showRemoved = false
-    @Published var snapping = true
-    @Published var showSettingsRequest = false
-    @Published var undoVersion = 0
-    @Published var fitRequest = 0
-    @Published var confirmRetranscribe = false
-    private var playbackRequested = false
-    private var hooksApplied = false
+    var timelineFocused = false
+    var selectedSegment: Int?
+    var selectedCandidate: UUID?
+    var pointsPerSecond = 40.0
+    var showRemoved = false
+    var snapping = true
+    var showSettingsRequest = false
+    var undoVersion = 0
+    var fitRequest = 0
+    var confirmRetranscribe = false
+    @ObservationIgnored private var playbackRequested = false
+    @ObservationIgnored private var hooksApplied = false
     private var trimBaseline: EditSnapshot?
     private struct EditSnapshot {
         var cuts: [CutCandidate]
@@ -57,15 +68,32 @@ import SwiftUI
         }
         return stage
     }
-    private var observer: Any?
-    private var boundaryObserver: Any?
-    private var seeking = false
-    private var cancellation = CancellationToken()
-    private var started = false
+    @ObservationIgnored private var observer: Any?
+    @ObservationIgnored private var boundaryObserver: Any?
+    @ObservationIgnored private var seeking = false
+    @ObservationIgnored private var cancellation = CancellationToken()
+    @ObservationIgnored private var started = false
+    /// Serial, so saves land in edit order without blocking the main thread.
+    private let saveQueue = DispatchQueue(label: "ChuangCut.save", qos: .utility)
     var busy: Bool { !stage.isEmpty }
     var isTrimming: Bool { trimBaseline != nil }
-    var canUndo: Bool { editUndoManager.canUndo }
-    var canRedo: Bool { editUndoManager.canRedo }
+    // UndoManager is not observable; reading undoVersion makes these refresh after each change.
+    var canUndo: Bool {
+        _ = undoVersion
+        return editUndoManager.canUndo
+    }
+    var canRedo: Bool {
+        _ = undoVersion
+        return editUndoManager.canRedo
+    }
+    var undoActionName: String {
+        _ = undoVersion
+        return editUndoManager.undoActionName
+    }
+    var redoActionName: String {
+        _ = undoVersion
+        return editUndoManager.redoActionName
+    }
     init() {
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.035, preferredTimescale: 600), queue: .main
@@ -118,11 +146,16 @@ import SwiftUI
         guard time.isFinite else { return }
         if !playbackRequested && player.rate != 0 { player.pause() }
         playhead = time
-        isPlaying = playbackRequested && player.rate != 0
+        // Every assignment notifies observers, even of an equal value.
+        let playing = playbackRequested && player.rate != 0
+        if isPlaying != playing { isPlaying = playing }
         skipCut(at: time)
     }
     private func skipCut(at time: Double) {
-        guard previewCuts, player.rate > 0, !seeking, let cut = mapper.cutRanges.first(where: { $0.contains(time) })
+        // A seek to cut.end can land microseconds early after CMTime rounding; treating that as still
+        // inside the cut would seek to the same point forever and freeze playback.
+        guard previewCuts, player.rate > 0, !seeking,
+            let cut = mapper.cutRanges.first(where: { $0.contains(time) && $0.end - time > 0.001 })
         else { return }
         seeking = true
         player.seek(
@@ -384,9 +417,10 @@ import SwiftUI
             .keptRanges
         if before.indices.contains(segment) {
             let anchor = (before[segment].start + before[segment].end) / 2
-            selectedSegment =
+            let selection =
                 mapper.keptRanges.firstIndex { $0.contains(anchor) }
                 ?? min(segment, max(0, mapper.keptRanges.count - 1))
+            if selectedSegment != selection { selectedSegment = selection }
         }
         revision += 1
     }
@@ -419,8 +453,16 @@ import SwiftUI
     private func changed() {
         revision += 1
         rebuildBoundaries()
-        if let project { do { try Pipeline.save(project) } catch { self.error = error.localizedDescription } }
+        guard let project else { return }
+        // Encoding a long transcript takes tens of milliseconds.
+        saveQueue.async { [weak self] in
+            do { try Pipeline.save(project) } catch {
+                let message = error.localizedDescription
+                Task { @MainActor in self?.error = message }
+            }
+        }
     }
+    func finishSaving() { saveQueue.sync {} }
     func cancel() { cancellation.cancel() }
     private func finish(_ error: Error) {
         stage = ""

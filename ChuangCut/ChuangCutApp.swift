@@ -3,7 +3,7 @@ import ChuangCutCore
 import SwiftUI
 
 @main struct ChuangCutApp: App {
-    @StateObject private var model = EditorModel()
+    @State private var model = EditorModel()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
         WindowGroup {
@@ -18,26 +18,26 @@ import SwiftUI
             CommandGroup(replacing: .newItem) {
                 Button("Open…") { model.chooseFile() }.keyboardShortcut("o").disabled(model.busy)
                 Button("Export…") { model.showExport = true }.keyboardShortcut("e", modifiers: [.command, .shift])
-                    .disabled(model.project == nil || model.busy)
+                    .disabled(!model.hasProject || model.busy)
             }
             CommandGroup(replacing: .undoRedo) {
-                Button("Undo \(model.editUndoManager.undoActionName)") { model.undo() }.keyboardShortcut("z").disabled(
+                Button("Undo \(model.undoActionName)") { model.undo() }.keyboardShortcut("z").disabled(
                     !model.canUndo || model.busy)
-                Button("Redo \(model.editUndoManager.redoActionName)") { model.redo() }.keyboardShortcut(
+                Button("Redo \(model.redoActionName)") { model.redo() }.keyboardShortcut(
                     "z", modifiers: [.command, .shift]
                 ).disabled(!model.canRedo || model.busy)
             }
             CommandMenu("Playback") {
                 Button(model.isPlaying ? "Pause" : "Play") { model.togglePlayback() }.keyboardShortcut(
                     .space, modifiers: []
-                ).disabled(model.project == nil || model.busy)
+                ).disabled(!model.hasProject || model.busy)
                 Button("Back 5 seconds") { model.skip(-5) }.keyboardShortcut(.leftArrow, modifiers: []).disabled(
-                    model.project == nil)
+                    !model.hasProject)
                 Button("Forward 5 seconds") { model.skip(5) }.keyboardShortcut(.rightArrow, modifiers: []).disabled(
-                    model.project == nil)
+                    !model.hasProject)
                 Divider()
                 Button("Split at Playhead") { model.splitAtPlayhead() }.keyboardShortcut("b").disabled(
-                    model.project == nil || model.busy)
+                    !model.hasProject || model.busy)
                 Button("Remove Selected Clip") { model.deleteSelectedClip() }.keyboardShortcut(.delete, modifiers: [])
                     .disabled(model.selectedSegment == nil || !model.timelineFocused || model.busy || model.showExport)
                 Button("Deselect Clip") { model.selectedSegment = nil }.keyboardShortcut(.escape, modifiers: [])
@@ -51,7 +51,10 @@ import SwiftUI
     weak var model: EditorModel?
     func application(_ application: NSApplication, open urls: [URL]) { if let url = urls.first { model?.open(url) } }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ notification: Notification) { model?.cancel() }
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.cancel()
+        model?.finishSaving()
+    }
 }
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
@@ -90,7 +93,7 @@ struct WindowIdentity: NSViewRepresentable {
     }
 }
 struct ContentView: View {
-    @ObservedObject var model: EditorModel
+    @Bindable var model: EditorModel
     @Environment(\.openSettings) private var openSettings
     @State private var targeted = false
     var body: some View {
@@ -180,7 +183,7 @@ struct ContentView: View {
             HStack {
                 Text("Transcript").font(.headline)
                 Spacer()
-                if let count = model.project?.transcript?.words.filter({ !$0.isPunctuation }).count {
+                if let count = model.spokenWordCount {
                     Text("\(count)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
                 }
             }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 12)
@@ -266,7 +269,7 @@ func timeLabel(_ seconds: Double) -> String {
     String(format: "%02d:%04.1f", Int(max(0, seconds)) / 60, max(0, seconds).truncatingRemainder(dividingBy: 60))
 }
 struct PlayerPanel: View {
-    @ObservedObject var model: EditorModel
+    @Bindable var model: EditorModel
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
@@ -304,13 +307,7 @@ struct PlayerPanel: View {
                     Spacer()
                 }.buttonStyle(.plain).disabled(model.busy)
                 HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(
-                            "\(timeLabel(model.mapper.sourceToCut(model.playhead))) / \(timeLabel(model.mapper.editedDuration))"
-                        ).font(.system(size: 12, weight: .medium, design: .monospaced))
-                        Text("Source  \(timeLabel(model.playhead)) / \(timeLabel(model.project?.media.duration ?? 0))")
-                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-                    }
+                    PlaybackTime(model: model)
                     Spacer()
                     Toggle("Preview cuts", isOn: $model.previewCuts).toggleStyle(.switch).controlSize(.mini).font(
                         .caption)
@@ -323,6 +320,18 @@ struct PlayerPanel: View {
                     }
                 }
             }.padding(16).background(.bar)
+        }
+    }
+}
+/// Separate so only these labels, not the player panel, re-render on every playhead tick.
+private struct PlaybackTime: View {
+    var model: EditorModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(timeLabel(model.mapper.sourceToCut(model.playhead))) / \(timeLabel(model.mapper.editedDuration))")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+            Text("Source  \(timeLabel(model.playhead)) / \(timeLabel(model.project?.media.duration ?? 0))")
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
         }
     }
 }

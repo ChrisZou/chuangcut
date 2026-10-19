@@ -3,7 +3,7 @@ import ChuangCutCore
 import SwiftUI
 
 struct TimelineView: NSViewRepresentable {
-    @ObservedObject var model: EditorModel
+    var model: EditorModel
     @ObservedObject var thumbnails: ThumbnailStore
     func makeNSView(context: Context) -> TimelineScrollView {
         let scroll = TimelineScrollView()

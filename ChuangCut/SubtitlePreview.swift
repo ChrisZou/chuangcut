@@ -2,7 +2,7 @@ import ChuangCutCore
 import SwiftUI
 
 struct SubtitlePreview: View {
-    @ObservedObject var model: EditorModel
+    var model: EditorModel
     @ObservedObject var thumbnails: ThumbnailStore
     var style: SubtitleStyle
     @State private var overlay: NSImage?

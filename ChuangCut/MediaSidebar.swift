@@ -2,7 +2,7 @@ import ChuangCutCore
 import SwiftUI
 
 struct MediaSidebar: View {
-    @ObservedObject var model: EditorModel
+    var model: EditorModel
     @ObservedObject var thumbnails: ThumbnailStore
     var body: some View {
         VStack(spacing: 0) {
@@ -52,7 +52,8 @@ struct MediaSidebar: View {
                         ForEach(cuts) { cut in
                             CandidateRow(
                                 cut: cut, selected: model.selectedCandidate == cut.id, disabled: model.busy,
-                                toggle: { model.toggle(cut.id) }, select: { model.selectCandidate(cut) })
+                                toggle: { model.toggle(cut.id) }, select: { model.selectCandidate(cut) }
+                            ).equatable()
                         }
                     } header: {
                         HStack(spacing: 7) {
@@ -78,13 +79,17 @@ struct MediaSidebar: View {
         }.background(.bar)
     }
 }
-private struct CandidateRow: View {
+/// Equatable so an edit to one cut does not re-render every other row; the actions only depend on `cut`.
+private struct CandidateRow: View, Equatable {
     let cut: CutCandidate
     let selected: Bool
     let disabled: Bool
     let toggle: () -> Void
     let select: () -> Void
     @State private var hovering = false
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.cut == rhs.cut && lhs.selected == rhs.selected && lhs.disabled == rhs.disabled
+    }
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Toggle("Enable \(cut.text)", isOn: Binding(get: { cut.enabled }, set: { _ in toggle() })).labelsHidden()

@@ -2,7 +2,7 @@ import ChuangCutCore
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject var model: EditorModel
+    var model: EditorModel
     @ObservedObject var settings = AppSettings.shared
     @State private var found: [URL] = []
     @State private var modelName = ModelManager.recommended[0]

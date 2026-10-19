@@ -2,7 +2,7 @@ import ChuangCutCore
 import SwiftUI
 
 struct ExportView: View {
-    @ObservedObject var model: EditorModel
+    var model: EditorModel
     @Environment(\.dismiss) private var dismiss
     @State private var output: URL?
     @State private var options = ExportOptions()

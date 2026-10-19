@@ -92,7 +92,7 @@ private final class PauseCell: NSTextAttachmentCell {
     }
 }
 struct TranscriptView: NSViewRepresentable {
-    @ObservedObject var model: EditorModel
+    var model: EditorModel
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -157,7 +157,13 @@ final class TranscriptTextView: NSTextView {
         guard let manager = layoutManager, let container = textContainer else { return }
         NSColor.separatorColor.withAlphaComponent(0.5).setFill()
         NSRect(x: 54, y: dirtyRect.minY, width: 0.5, height: dirtyRect.height).fill()
-        for (index, time) in timestamps where index < (textStorage?.length ?? 0) {
+        // Only look up visible lines; asking for every timestamp's line would lay out the whole transcript.
+        let band = NSRect(
+            x: 0, y: dirtyRect.minY - textContainerOrigin.y, width: container.size.width, height: dirtyRect.height)
+        let visible = manager.characterRange(
+            forGlyphRange: manager.glyphRange(forBoundingRect: band, in: container), actualGlyphRange: nil)
+        for (index, time) in timestamps
+        where index >= visible.location && index <= NSMaxRange(visible) && index < (textStorage?.length ?? 0) {
             let glyph = manager.glyphIndexForCharacter(at: index)
             let rect = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
             let y = rect.minY + textContainerOrigin.y + 5
@@ -192,7 +198,10 @@ final class TranscriptTextView: NSTextView {
         let pauses = (project?.candidates ?? []).filter { $0.kind == .pause }.sorted { $0.sourceStart < $1.sourceStart }
         let mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: [])
         let words = project?.transcript?.words ?? []
-        let pausesAtWord = Dictionary(grouping: pauses) { mapper.pauseInsertionIndex($0, words: words) }
+        var pausesAtWord: [Int: [CutCandidate]] = [:]
+        for (pause, index) in zip(pauses, mapper.pauseInsertionIndices(pauses, words: words)) {
+            pausesAtWord[index, default: []].append(pause)
+        }
         let wordCuts = mapper.candidates(for: words, cuts: project?.candidates ?? [])
         var wordIndex = 0
         func pill(_ cut: CutCandidate) {

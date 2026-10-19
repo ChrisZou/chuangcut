@@ -106,3 +106,22 @@ Exact edge regression: `chuangcut-cli test_zh.mp4 --out ~/code/ai/chuangcut-test
 - A 28.5-minute synthetic Mandarin recording ran through the CLI with `--burn` in about 6 minutes: **1709.8 s → 1506.3 s**, 734 cues, both MP4s 1506.36 s. 额度 survives (70 cues), no isolated 嗯/那个 remain.
 - Main-thread stalls on that recording, old build → fixed build: toggling one cut **189.9 s → 0.20 s**, undo **130.5 s → 0.25 s**, loading a cached project **87.8 s → 0.46 s**.
 - A rotated phone recording now exports at its 720×1280 display size with subtitles placed for that frame. A quieter copy of the fixture now produces the same six subtitle cues as the original instead of dropping 今天 and 辑.
+
+## Long-video responsiveness
+
+Measured on the regenerated 28.5-minute recording (`~/code/ai/chuangcut-testdata/long/long.mp4`) with a temporary, uncommitted harness that reports the worst main-thread stall per action, plus Time Profiler traces.
+
+| Action | Before | After |
+|---|---:|---:|
+| 30 trim-drag events at 60 Hz | 2.35 s | 0.77 s |
+| Main thread busy during playback | ~100% | ~22% |
+| Transcript rebuild + re-render | 212 ms | 28 ms |
+| Toggle one cut | 124 ms | 94–148 ms |
+
+- `EditorModel` uses Observation, so the 35 ms playhead tick only refreshes the time labels, timeline and transcript highlight instead of the sidebar, every visible row and the menu bar.
+- Sidebar rows are equatable; the menu bar reads `hasProject` and undo state instead of the whole project.
+- Transcript drawing looks up timestamps only for visible lines instead of laying out the whole transcript on every redraw.
+- `pauseInsertionIndices` replaces a per-pause linear scan; it matched the single lookup on 1,800 random unsorted, overlapping and zero-length word sets.
+- Project JSON is written on a serial background queue and flushed on quit. A relaunch restored the last toggle state.
+- Fixed a pre-existing preview-cuts freeze: seeking to a cut end such as 13.709604 s rounds to 13.7096 s at the 1/60000 timescale, which still lies inside the cut and re-triggered the skip. Playing from that point stalled on the old build and plays immediately now.
+- Native checks through accessibility: toggling a cut updated the sidebar count, duration, window subtitle and timeline; Edit showed **Undo Toggle cut** / **Redo Toggle cut**; one ⌘Z undid exactly one of two toggles; playback advanced the time labels, timeline playhead and transcript highlight; Export and Settings opened with the subtitle preview.
