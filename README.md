@@ -35,16 +35,15 @@ To test dragging an **unselected** clip edge, launch with `--select-segment 0 --
 ## Editing
 
 - Drop a video into the window or use **File → Open** (`⌘O`).
-- Choose **Transcribe**, then review color-coded cuts in the transcript and sidebar.
-- Click a word or candidate to seek; clicking a removed word seeks to the edit point where its cut begins. Option-click cut text, click a pause pill, or use a checkbox to toggle a cut. Right-click provides the same actions.
+- A video without a transcript is transcribed and analysed as soon as it opens; review the color-coded cuts in the transcript. The toolbar holds only **Import** and **Export**; **Clip** › Transcribe Again… and Detect Cuts Again (`⇧⌘R`) redo the analysis, for example after changing detection settings.
+- Click a word to seek; clicking a removed word seeks to the edit point where its cut begins. Option-click cut text or click a pause pill to toggle a cut. Right-click provides the same actions.
 - Select transcript text and press Delete to create a manual cut. `⌘Z` undoes cut changes. During playback the transcript scrolls to keep the spoken word in view, except for a few seconds after you scroll it yourself.
-- Each kind has an enable/disable-all icon. The toolbar and sidebar show the union of enabled cuts, so overlaps are never counted twice.
 - The edited timeline shows consecutive kept clips with cached thumbnail strips and audio waveforms. **Show removed** switches to source time with colored hatches; Option-click a removed range to toggle it.
-- Click a clip to select it and highlight its transcript words. Drag either solid yellow edge handle to remove or restore source material, with live frame preview and ripple reflow. Handles are 12 pt wide with dark grips and 16 pt hit areas; hovering an unselected clip edge shows the resize cursor, and dragging it selects the clip automatically. Edges snap to words, playhead and neighboring boundaries within 8 px; hold `⌘` or turn off **Snap** to bypass.
-- A trim updates candidate ranges and shows **Adjusted** in the sidebar. Pause labels always show the actual removed duration, including adjustments, consistently in the sidebar, transcript and CLI. Overlapping candidates are adjusted together when restoring material. Clips cannot grow past the neighboring kept source range or shrink below 0.1 s.
-- Double-click a clip to play, Delete removes the selected clip, Escape deselects, and `⌘B` splits at the playhead. Splits persist without deleting material. `⌘Z` / `⇧⌘Z` undo/redo trims, toggles, splits and manual cuts.
+- Click a clip to select it and highlight its transcript words. Drag either solid yellow edge handle to remove or restore source material, with live frame preview and ripple reflow. Handles are 12 pt wide with dark grips and 16 pt hit areas; hovering an unselected clip edge shows the resize cursor, and dragging it selects the clip automatically. Edges snap to words, playhead and neighboring boundaries within 8 px; hold `⌘` or turn off **Clip** › Snap Trim Edges to bypass.
+- A trim updates candidate ranges and marks them adjusted. Pause labels always show the actual removed duration, including adjustments, consistently in the transcript and CLI. Overlapping candidates are adjusted together when restoring material. Clips cannot grow past the neighboring kept source range or shrink below 0.1 s.
+- Double-click a clip to play, Delete removes the selected clip, Escape deselects, and **Split** in the timeline header (`⌘B`) splits at the playhead. Splits persist without deleting material. `⌘Z` / `⇧⌘Z` undo/redo trims, toggles, splits and manual cuts.
 - Drag the ruler or clip body to scrub. Pinch or `⌘`-scroll to zoom around the cursor; the logarithmic slider/buttons zoom around the playhead (0.05–300 pt/s). Fit shows the whole edit, including multi-hour recordings; playback follows the playhead automatically.
-- **Preview cuts** skips enabled intervals using exact AVPlayer seeks. Space plays/pauses.
+- **Preview cuts** (the switch under the player, or `⇧⌘P`) plays the edit as one continuous composition. Space plays/pauses.
 - **Export** (`⇧⌘E`) chooses the destination, encoding quality, SRT output, subtitle burn-in and style. The green checkmark reveals the completed export.
 - Import, transcription, detection, and export have cancellation. Partial video exports are staged and only replace the destination after success.
 
@@ -108,7 +107,6 @@ ChuangCut/                         Native app
   AppKitSupport.swift              Observer (model → AppKit updates) and small view helpers
   EditorModel.swift                Main-actor @Observable editor and playback coordination
   PlayerPanel.swift                AVPlayerView stage and transport controls
-  MediaSidebar.swift               Media card and NSTableView of grouped cuts
   TranscriptView.swift             NSTextView range/word interactions
   TimelineView.swift               AppKit clip strips, trim handles, ruler and zoom
   ThumbnailStore.swift             Async AVAssetImageGenerator + bounded cache

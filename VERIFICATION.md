@@ -171,3 +171,8 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - Preview: exact seeks on the 4K HEVC source stalled 121–141 ms at each join (measured with a standalone AVPlayer). With the composition, playing 12 s across two joins kept wall-clock minus edited time constant at 0.6–0.7 s (the start-up delay). Toggling Preview off and on, toggling a cut and undoing it kept the source position.
 - `swift test`: 47 tests, 0 failures.
 
+## Simpler editor window
+
+- The toolbar holds only Import and Export; the media/cut sidebar is gone. Split moved to the timeline header; Transcribe Again…, Detect Cuts Again, Preview Cuts and Snap Trim Edges are in a new Clip menu (Playback keeps play and seek). A video without a transcript is transcribed when it opens.
+- In the app: the window shows player, transcript and timeline only; the Clip menu lists its seven commands; Split at 00:05 made eight clips and ⌘Z restored seven.
+

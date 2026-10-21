@@ -109,9 +109,17 @@ import SwiftUI
                 item(
                     "Forward 5 Seconds", #selector(EditorWindowController.skipForward(_:)),
                     arrow(NSRightArrowFunctionKey), []),
-                .separator(), item("Split at Playhead", #selector(EditorWindowController.splitAtPlayhead(_:)), "b"),
+            ])
+        menu(
+            "Clip",
+            [
+                item("Split at Playhead", #selector(EditorWindowController.splitAtPlayhead(_:)), "b"),
                 item("Remove Selected Clip", #selector(TimelineCanvas.removeSelectedClip(_:)), "\u{8}", []),
-                item("Deselect Clip", #selector(TimelineCanvas.deselectClip(_:)), "\u{1b}", []),
+                item("Deselect Clip", #selector(TimelineCanvas.deselectClip(_:)), "\u{1b}", []), .separator(),
+                item("Preview Cuts", #selector(EditorWindowController.togglePreview(_:)), "p", [.command, .shift]),
+                item("Snap Trim Edges", #selector(EditorWindowController.toggleSnap(_:))), .separator(),
+                item("Transcribe Again…", #selector(EditorWindowController.transcribe(_:))),
+                item("Detect Cuts Again", #selector(EditorWindowController.detect(_:)), "r", [.command, .shift]),
             ])
         NSApp.windowsMenu = menu(
             "Window",

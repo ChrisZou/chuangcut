@@ -8,6 +8,7 @@ final class TimelinePanel: NSView {
     private let canvas = TimelineCanvas()
     private let mode = NSTextField.label(9, weight: .semibold, color: .secondaryLabelColor)
     private let showRemoved = NSButton(checkboxWithTitle: "Show removed", target: nil, action: nil)
+    private let split = NSButton(title: "Split", image: .symbol("scissors", "Split"), target: nil, action: nil)
     private let zoom = NSSlider()
     private var observers: [Observer] = []
     init(model: EditorModel) {
@@ -30,6 +31,12 @@ final class TimelinePanel: NSView {
         showRemoved.font = .systemFont(ofSize: 10)
         showRemoved.target = self
         showRemoved.action = #selector(toggleRemoved)
+        split.bezelStyle = .accessoryBarAction
+        split.imagePosition = .imageLeading
+        split.font = .systemFont(ofSize: 11)
+        split.toolTip = "Split the clip at the playhead (⌘B)"
+        split.target = self
+        split.action = #selector(splitAtPlayhead)
         // Logarithmic so both a whole long video and frame-level detail are reachable.
         zoom.minValue = log(EditorModel.zoomRange.lowerBound)
         zoom.maxValue = log(EditorModel.zoomRange.upperBound)
@@ -47,13 +54,14 @@ final class TimelinePanel: NSView {
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let divider = separator(vertical: true)
         let controls = NSStackView(views: [
-            icon, title, mode, spacer, showRemoved, divider,
+            icon, title, mode, split, spacer, showRemoved, divider,
             button("minus.magnifyingglass", "Zoom out", #selector(zoomOut)), zoom,
             button("plus.magnifyingglass", "Zoom in", #selector(zoomIn)),
             button("arrow.left.and.right.righttriangle.left.righttriangle.right", "Fit timeline", #selector(fit)),
         ])
         controls.spacing = 12
         controls.setCustomSpacing(6, after: icon)
+        controls.setCustomSpacing(18, after: mode)
         controls.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
         let header = barBackground()
         header.addFilling(controls)
@@ -82,6 +90,7 @@ final class TimelinePanel: NSView {
                     attributes: [.kern: 1, .font: mode.font as Any, .foregroundColor: NSColor.secondaryLabelColor])
                 showRemoved.state = model.showRemoved ? .on : .off
                 zoom.doubleValue = log(model.pointsPerSecond)
+                split.isEnabled = model.hasProject && !model.busy
             },
             Observer { [weak self] in self?.canvas.update() },
             Observer { [weak self] in
@@ -97,6 +106,7 @@ final class TimelinePanel: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     @objc private func toggleRemoved() { model.showRemoved = showRemoved.state == .on }
+    @objc private func splitAtPlayhead() { model.splitAtPlayhead() }
     @objc private func zoomChanged() { model.pointsPerSecond = EditorModel.clampZoom(exp(zoom.doubleValue)) }
     @objc private func zoomOut() { model.pointsPerSecond = EditorModel.clampZoom(model.pointsPerSecond / 1.25) }
     @objc private func zoomIn() { model.pointsPerSecond = EditorModel.clampZoom(model.pointsPerSecond * 1.25) }

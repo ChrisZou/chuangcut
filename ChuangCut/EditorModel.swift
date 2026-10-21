@@ -279,7 +279,8 @@ import SwiftUI
                 thumbnails.load(url)
                 rebuildPlayback()
                 stage = ""
-                if autoTranscribe { transcribe() } else { applyLaunchHooks() }
+                // A video seen for the first time is transcribed right away; there is no toolbar button for it.
+                if autoTranscribe || project?.transcript == nil { transcribe() } else { applyLaunchHooks() }
             } catch { finish(error) }
         }
     }

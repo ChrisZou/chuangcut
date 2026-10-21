@@ -5,15 +5,12 @@ import SwiftUI
 
 extension NSToolbarItem.Identifier {
     fileprivate static let importVideo = Self("import")
-    fileprivate static let transcribe = Self("transcribe")
-    fileprivate static let detect = Self("detect")
-    fileprivate static let preview = Self("preview")
-    fileprivate static let snap = Self("snap")
-    fileprivate static let split = Self("split")
     fileprivate static let export = Self("export")
 }
 
-/// The editor window: toolbar, split layout, sheets and alerts. Panels observe the model themselves.
+/// The editor window: toolbar, split layout, sheets and alerts. Panels observe the model themselves. The
+/// toolbar holds only Import and Export; analysis, preview and snapping live in the Clip menu, and Split sits
+/// on the timeline it acts on.
 @MainActor
 final class EditorWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate,
     NSMenuItemValidation
@@ -25,7 +22,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     private let processing = ProcessingBar()
     private lazy var processingHeight = processing.heightAnchor.constraint(equalToConstant: 0)
     private let empty: EmptyStateView
-    private let split = NSSplitViewController()
+    private let content = NSViewController()
     private let inner = NSSplitViewController()
     private var dividersPlaced = false
     private var tools: [NSToolbarItem.Identifier: NSButton] = [:]
@@ -45,7 +42,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         buildLayout()
         window.contentViewController = root
         window.setContentSize(NSSize(width: 1500, height: 940))
-        window.contentMinSize = NSSize(width: 1160, height: 760)
+        window.contentMinSize = NSSize(width: 900, height: 760)
         window.toolbarStyle = .unified
         window.toolbar = makeToolbar()
         window.delegate = self
@@ -109,20 +106,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             timeline.topAnchor.constraint(equalTo: line.bottomAnchor),
             timeline.bottomAnchor.constraint(equalTo: column.bottomAnchor),
         ])
-        let content = controller(column)
+        content.view = column
         content.addChild(inner)
-        let contentItem = NSSplitViewItem(viewController: content)
-        contentItem.minimumThickness = 830
-        contentItem.holdingPriority = .init(250)
-
-        let sidebarItem = NSSplitViewItem(viewController: controller(MediaSidebar(model: model)))
-        sidebarItem.minimumThickness = 230
-        sidebarItem.maximumThickness = 300
-        sidebarItem.holdingPriority = .init(260)
-        split.splitView.dividerStyle = .thin
-        split.addSplitViewItem(sidebarItem)
-        split.addSplitViewItem(contentItem)
-        root.addChild(split)
+        root.addChild(content)
     }
     private func controller(_ view: NSView) -> NSViewController {
         let controller = NSViewController()
@@ -134,7 +120,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     private func showContent() {
         let editor = model.hasProject
-        let target: NSView = editor ? split.view : empty
+        let target: NSView = editor ? content.view : empty
         if !editor { empty.refresh() }
         guard target.superview !== contentHost else { return }
         for view in contentHost.subviews { view.removeFromSuperview() }
@@ -142,7 +128,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         if editor && !dividersPlaced {
             dividersPlaced = true
             window?.layoutIfNeeded()
-            split.splitView.setPosition(260, ofDividerAt: 0)
             inner.splitView.setPosition(inner.splitView.bounds.width - 410, ofDividerAt: 0)
         }
     }
@@ -154,16 +139,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         if window.subtitle != subtitle { window.subtitle = subtitle }
     }
     private func updateToolbar() {
-        let ready = model.hasProject && !model.busy
         tools[.importVideo]?.isEnabled = !model.busy
-        tools[.transcribe]?.isEnabled = ready
-        tools[.detect]?.isEnabled = ready && model.project?.transcript != nil
-        tools[.split]?.isEnabled = ready
-        tools[.export]?.isEnabled = ready
-        for (id, on) in [(NSToolbarItem.Identifier.preview, model.previewCuts), (.snap, model.snapping)] {
-            tools[id]?.state = on ? .on : .off
-            tools[id]?.contentTintColor = on ? .controlAccentColor : nil
-        }
+        tools[.export]?.isEnabled = model.hasProject && !model.busy
     }
     private func updateProcessing() {
         let busy = model.busy
@@ -235,6 +212,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             return model.hasProject && !model.busy
         case #selector(skipBackward(_:)), #selector(skipForward(_:)): return model.hasProject
         case #selector(importVideo(_:)): return !model.busy
+        case #selector(detect(_:)): return model.project?.transcript != nil && !model.busy
+        case #selector(togglePreview(_:)):
+            item.state = model.previewCuts ? .on : .off
+            return model.hasProject
+        case #selector(toggleSnap(_:)):
+            item.state = model.snapping ? .on : .off
+            return model.hasProject
         default: return model.hasProject && !model.busy
         }
     }
@@ -245,29 +229,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Toolbar
 
     private func makeToolbar() -> NSToolbar {
-        func tool(
-            _ id: NSToolbarItem.Identifier, _ title: String, _ symbol: String, _ action: Selector,
-            help: String? = nil, toggle: Bool = false
-        ) {
+        func tool(_ id: NSToolbarItem.Identifier, _ title: String, _ symbol: String, _ action: Selector, help: String) {
             let button = NSButton(title: title, image: .symbol(symbol, title), target: self, action: action)
             button.bezelStyle = .toolbar
-            button.imagePosition = toggle ? .imageOnly : .imageLeading
-            if toggle { button.setButtonType(.pushOnPushOff) }
-            button.toolTip = help ?? title
+            button.imagePosition = .imageLeading
+            button.toolTip = help
             tools[id] = button
         }
-        tool(.importVideo, "Import", "plus", #selector(importVideo(_:)))
-        tool(.transcribe, "Transcribe", "text.bubble", #selector(transcribe(_:)))
-        tool(.detect, "Detect", "wand.and.stars", #selector(detect(_:)))
-        tool(
-            .preview, "Preview", "play.rectangle", #selector(togglePreview(_:)),
-            help: "Skip enabled cuts during playback",
-            toggle: true)
-        tool(
-            .snap, "Snap", "align.horizontal.center", #selector(toggleSnap(_:)),
-            help: "Snap trim edges · hold ⌘ to bypass", toggle: true)
-        tool(.split, "Split", "scissors", #selector(splitAtPlayhead(_:)))
-        tool(.export, "Export", "square.and.arrow.up", #selector(showExport(_:)))
+        tool(.importVideo, "Import", "plus", #selector(importVideo(_:)), help: "Open a video (⌘O)")
+        tool(.export, "Export", "square.and.arrow.up", #selector(showExport(_:)), help: "Export the edited video (⇧⌘E)")
         let toolbar = NSToolbar(identifier: "EditorToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -275,7 +245,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         return toolbar
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.importVideo, .flexibleSpace, .transcribe, .detect, .preview, .snap, .split, .export]
+        [.importVideo, .flexibleSpace, .export]
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
