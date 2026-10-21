@@ -98,6 +98,33 @@ final class RobustnessTests: XCTestCase {
         let mapper = TimelineMapper(duration: 7, cuts: cuts)
         XCTAssertEqual(input.filter { !mapper.removes($0) }.map(\.text).joined(), "里面包含了大量细节都用AI帮你做了准备")
     }
+    func testVerbatimRestartsKeepOnlyTheLastTake() {
+        // Doubao writes down the restarts Whisper leaves out, often several within one clause.
+        XCTAssertEqual(
+            keptText(["如果如果你正在搞，", "如果你正在找，", "如果你正在找工作，", "相信这个视频一定对你有巨大的帮助。"]),
+            "如果你正在找工作，相信这个视频一定对你有巨大的帮助。")
+        XCTAssertEqual(keptText(["里面里面包里面包含了大量细节。"]), "里面包含了大量细节。")
+        XCTAssertEqual(keptText(["所以我们都知道A我们都知道AI已经来了。"]), "所以我们都知道AI已经来了。")
+        XCTAssertEqual(keptText(["我们一步一步来。"]), "我们一步一步来。")
+    }
+    func testWordsGluedToARestartGoWithTheAbandonedTake() {
+        // 所以为了 continues the take before the pause; 我们都知道… starts over right after it.
+        XCTAssertEqual(
+            keptText(["我们都知道AI已经造成了失业，所以为了", "所以为了我们都知道AI已经造成了失业，", "所以为了报仇。"], gap: 0.8),
+            "我们都知道AI已经造成了失业，所以为了报仇。")
+        // A connective added in the final take is kept.
+        XCTAssertEqual(keptText(["我们都知道AI很厉害。", "所以我们都知道AI很厉害。"], gap: 0.8), "所以我们都知道AI很厉害。")
+    }
+    func testNoWordlessSliverIsLeftBetweenCuts() {
+        // A breath between the first take and the pause has no words; it goes with the take.
+        let input =
+            words(["今天我们来聊。"]) + words(["今天我们来聊剪辑。"]).map { Word(text: $0.text, start: $0.start + 3, end: $0.end + 3) }
+        let cuts = CutDetector().detect(words: input, duration: 5.5, silences: [TimeRange(2, 3)])
+        let ranges = TimelineMapper(duration: 5.5, cuts: cuts).cutRanges
+        XCTAssertEqual(ranges.count, 1)
+        XCTAssertEqual(ranges[0].start, 0, accuracy: 0.001)
+        XCTAssertEqual(ranges[0].end, 2.9, accuracy: 0.001)
+    }
 
     func testRotatedPhoneVideoUsesDisplaySize() throws {
         func info(_ stream: String) throws -> MediaInfo {

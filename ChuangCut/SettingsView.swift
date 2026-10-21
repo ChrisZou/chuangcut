@@ -2,7 +2,7 @@ import ChuangCutCore
 import SwiftUI
 
 /// One view per Settings tab; AppKit hosts them in a toolbar-style tab view controller.
-struct ModelSettingsView: View {
+struct TranscriptionSettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @State private var found: [URL] = []
     @State private var modelName = ModelManager.recommended[0]
@@ -12,47 +12,32 @@ struct ModelSettingsView: View {
     @State private var manager = ModelManager()
     var body: some View {
         Form {
-            Section("Whisper model") {
-                HStack {
-                    TextField("Model path", text: $settings.modelPath)
-                    Button {
-                        chooseModel()
-                    } label: {
-                        Image(systemName: "folder")
-                    }.help("Choose model").accessibilityLabel("Choose model")
+            Section {
+                Picker("Engine", selection: $settings.transcriber) {
+                    Text("Doubao Seed-ASR").tag(Transcriber.doubao)
+                    Text("Whisper, on this Mac").tag(Transcriber.whisper)
                 }
-                if !found.isEmpty {
-                    Picker("Installed", selection: $settings.modelPath) {
-                        if !found.contains(where: { $0.path == settings.modelPath }) {
-                            Text(
-                                settings.modelPath.isEmpty
-                                    ? "Choose a model" : URL(fileURLWithPath: settings.modelPath).lastPathComponent
-                            ).tag(settings.modelPath)
-                        }
-                        ForEach(found, id: \.path) { Text($0.lastPathComponent).tag($0.path) }
-                    }
+            } footer: {
+                Text(
+                    settings.transcriber == .doubao
+                        ? "Writes down every word as spoken, restarts and repeated takes included, so only the last take is kept. Audio is uploaded to Volcengine."
+                        : "Works offline, but tidies speech as it transcribes and often leaves out repeated takes and fillers."
+                ).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if settings.transcriber == .doubao {
+                Section {
+                    SecureField("API key", text: $settings.doubaoKey)
+                    TextField("Hotword table ID", text: $settings.hotwordTable, prompt: Text("Optional"))
+                } header: {
+                    Text("Doubao")
+                } footer: {
+                    Link(
+                        "Get a key for 录音文件识别大模型 in the Volcengine console",
+                        destination: URL(string: "https://console.volcengine.com/speech/app")!
+                    ).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Picker("Download", selection: $modelName) {
-                    ForEach(ModelManager.recommended, id: \.self) {
-                        Text(
-                            $0.replacingOccurrences(of: "ggml-", with: "").replacingOccurrences(of: ".bin", with: "")
-                        ).tag($0)
-                    }
-                }
-                HStack {
-                    if downloading {
-                        ProgressView(value: progress)
-                        Button("Cancel") { manager.cancel() }
-                    } else {
-                        Button("Download") { download() }
-                        Spacer()
-                        Button {
-                            refresh(includeDownloads: true)
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }.help("Find models, including Downloads")
-                    }
-                }
+            } else {
+                whisperModel
             }
             Section("Tools") {
                 TextField("ffmpeg", text: $settings.ffmpegPath)
@@ -65,6 +50,50 @@ struct ModelSettingsView: View {
             } message: {
                 Text(error ?? "")
             }
+    }
+    private var whisperModel: some View {
+        Section("Whisper model") {
+            HStack {
+                TextField("Model path", text: $settings.modelPath)
+                Button {
+                    chooseModel()
+                } label: {
+                    Image(systemName: "folder")
+                }.help("Choose model").accessibilityLabel("Choose model")
+            }
+            if !found.isEmpty {
+                Picker("Installed", selection: $settings.modelPath) {
+                    if !found.contains(where: { $0.path == settings.modelPath }) {
+                        Text(
+                            settings.modelPath.isEmpty
+                                ? "Choose a model" : URL(fileURLWithPath: settings.modelPath).lastPathComponent
+                        ).tag(settings.modelPath)
+                    }
+                    ForEach(found, id: \.path) { Text($0.lastPathComponent).tag($0.path) }
+                }
+            }
+            Picker("Download", selection: $modelName) {
+                ForEach(ModelManager.recommended, id: \.self) {
+                    Text(
+                        $0.replacingOccurrences(of: "ggml-", with: "").replacingOccurrences(of: ".bin", with: "")
+                    ).tag($0)
+                }
+            }
+            HStack {
+                if downloading {
+                    ProgressView(value: progress)
+                    Button("Cancel") { manager.cancel() }
+                } else {
+                    Button("Download") { download() }
+                    Spacer()
+                    Button {
+                        refresh(includeDownloads: true)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }.help("Find models, including Downloads")
+                }
+            }
+        }
     }
     private func refresh(includeDownloads: Bool) {
         Task { found = await Task.detached { ModelManager.discover(includeDownloads: includeDownloads) }.value }

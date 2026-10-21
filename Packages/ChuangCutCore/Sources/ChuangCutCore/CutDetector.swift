@@ -69,37 +69,17 @@ public struct CutDetector {
                 sentence = []
             }
         }
-        candidates += earlierTakes(meaningful)
-        // Adjacent short phrase repetitions, including CJK character words and Latin words.
-        for clause in meaningful {
-            let spoken = clause.filter { !$0.isPunctuation }
-            let spokenText = spoken.map(\.text).joined()
-            var i = 0
-            while i < spoken.count {
-                var matched = false
-                for size in stride(from: min(4, (spoken.count - i) / 2), through: 1, by: -1) where size > 0 {
-                    let first = Array(spoken[i..<(i + size)])
-                    let second = Array(spoken[(i + size)..<(i + size * 2)])
-                    if normalized(first.map(\.text).joined()) == normalized(second.map(\.text).joined()),
-                        second.first!.start - first.last!.end < 0.5
-                    {
-                        let text = first.map(\.text).joined()
-                        // A single repeated CJK character is often a legitimate reduplication (看看, 人人).
-                        if size == 1 && text.count == 1 && text.first.map(isCJK) == true { continue }
-                        let offset = spoken[..<i].reduce(0) { $0 + $1.text.count }
-                        if Self.isReduplication(text, in: spokenText, at: offset) { continue }
-                        candidates.append(
-                            CutCandidate(
-                                kind: .retake, start: first.first!.start, end: first.last!.end, text: text,
-                                reason: "Immediate repeated phrase"))
-                        i += size
-                        matched = true
-                        break
-                    }
-                }
-                if !matched { i += 1 }
-            }
+        // Restarts inside a clause come first, so a clause like 如果如果你正在搞 is compared with later
+        // takes as 如果你正在搞.
+        let restarts = restartedPhrases(meaningful)
+        var restarted = Set(restarts.flatMap { $0.words.map(\.id) })
+        func remaining(_ clauses: [[Word]]) -> [[Word]] {
+            clauses.map { $0.filter { !restarted.contains($0.id) } }.filter { $0.contains { !$0.isPunctuation } }
         }
+        let heads = strayHeads(remaining(meaningful))
+        restarted.formUnion(heads.flatMap { $0.words.map(\.id) })
+        candidates += (restarts + heads).map(\.cut)
+        candidates += earlierTakes(remaining(meaningful))
         // Join speech cuts to nearby acoustic pause cuts. This removes residual final phonemes
         // when Whisper ends a segment slightly before the actual audio stops, but never reaches a kept
         // word lying between the cut and the pause.
@@ -119,7 +99,27 @@ public struct CutDetector {
                 }
             }
         }
-        return candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
+        candidates = candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
+        bridgeWordlessGaps(&candidates, spoken: spoken)
+        return candidates
+    }
+    /// Pause padding and the space between two removed takes leave slivers of breath and silence when the
+    /// speech on both sides is cut. Close each gap of up to two seconds that holds no kept word and borders a
+    /// speech cut; sound between two pauses with no words in it may be something the ASR didn't write down.
+    private func bridgeWordlessGaps(_ candidates: inout [CutCandidate], spoken: [Word]) {
+        let removed = TimelineMapper.merge(candidates.map(\.range))
+        let kept = spoken.map { ($0.start + $0.end) / 2 }.filter { mid in !removed.contains { $0.contains(mid) } }
+        for (left, right) in zip(removed, removed.dropFirst()) where right.start - left.end <= 2 {
+            guard !kept.contains(where: { $0 > left.end && $0 < right.start }) else { continue }
+            // Stretch the speech cut, so pause cuts keep their measured length.
+            if let i = candidates.firstIndex(where: { $0.kind != .pause && abs($0.sourceEnd - left.end) < 1e-9 }) {
+                candidates[i].sourceEnd = right.start
+            } else if let i = candidates.firstIndex(where: {
+                $0.kind != .pause && abs($0.sourceStart - right.start) < 1e-9
+            }) {
+                candidates[i].sourceStart = left.end
+            }
+        }
     }
     /// How far after a phrase a repeat still counts as a retake of it.
     static let retakeWindow = 45.0
@@ -180,6 +180,79 @@ public struct CutDetector {
         for fragment in fragments.reversed()
         where fragment.later == fragment.last + 1 || cut.contains(fragment.last + 1) {
             emit(fragment.first, fragment.last, later: fragment.later)
+        }
+        return result
+    }
+    /// A phrase restarted at once within a clause: 我们我们决定, 里面包里面包含, 我们都知道 A 我们都知道 AI. The
+    /// abandoned start is cut when the words right after it begin with the same text, so exact repeats and
+    /// restarts that broke off mid-word are both covered. Returns each cut with the words it removes.
+    private func restartedPhrases(_ clauses: [[Word]]) -> [(cut: CutCandidate, words: [Word])] {
+        var result: [(cut: CutCandidate, words: [Word])] = []
+        for clause in clauses {
+            let spoken = clause.filter { !$0.isPunctuation }
+            let texts = spoken.map { normalized($0.text) }
+            let spokenText = spoken.map(\.text).joined()
+            var i = 0
+            while i < spoken.count {
+                // The longest start of at least two characters that the following words begin with; a single
+                // CJK character is often a legitimate reduplication (看看, 人人).
+                var size = 0
+                var unit = ""
+                for k in 1..<max(1, spoken.count - i) {
+                    unit += texts[i + k - 1]
+                    guard unit.count <= 20 else { break }
+                    guard unit.count >= 2 else { continue }
+                    var rest = ""
+                    for text in texts[(i + k)...] where rest.count < unit.count { rest += text }
+                    if rest.hasPrefix(unit) { size = k }
+                }
+                guard size > 0 else {
+                    i += 1
+                    continue
+                }
+                let first = Array(spoken[i..<(i + size)])
+                let text = first.map(\.text).joined()
+                let offset = spoken[..<i].reduce(0) { $0 + $1.text.count }
+                if !Self.isReduplication(text, in: spokenText, at: offset) {
+                    let cut = CutCandidate(
+                        kind: .retake, start: first.first!.start, end: first.last!.end, text: text,
+                        reason: "Immediate repeated phrase")
+                    result.append((cut, first))
+                }
+                i += size
+            }
+        }
+        return result
+    }
+    /// A restart can follow a few words with no pause in between, so they share a clause: 所以为了 ⏸
+    /// 所以为了我们都知道 AI…, where 我们都知道 AI… starts the sentence over. When a clause's first words repeat
+    /// the end of the clause before it and the rest opens like an earlier clause, those words belong to the
+    /// abandoned take and are cut with it.
+    private func strayHeads(_ clauses: [[Word]]) -> [(cut: CutCandidate, words: [Word])] {
+        var result: [(cut: CutCandidate, words: [Word])] = []
+        let clauseTexts = clauses.map { normalized($0.map(\.text).joined()) }
+        var windowStart = 0
+        for c in clauses.indices.dropFirst() {
+            let spoken = clauses[c].filter { !$0.isPunctuation }
+            let texts = spoken.map { normalized($0.text) }
+            let previous = clauseTexts[c - 1]
+            while spoken[0].start - clauses[windowStart].first!.start > Self.retakeWindow { windowStart += 1 }
+            let earlier = clauseTexts[windowStart..<c]
+            var head = ""
+            for j in 1..<max(1, spoken.count) {
+                head += texts[j - 1]
+                guard head.count <= 6 else { break }
+                let rest = texts[j...].joined()
+                guard head.count >= 2, rest.count >= 4, previous.hasSuffix(head) else { continue }
+                let opening = String(rest.prefix(6))
+                guard earlier.contains(where: { $0.hasPrefix(opening) }) else { continue }
+                let words = Array(spoken[..<j])
+                let cut = CutCandidate(
+                    kind: .retake, start: words.first!.start, end: words.last!.end, text: words.map(\.text).joined(),
+                    reason: "End of an abandoned take before a restart")
+                result.append((cut, words))
+                break
+            }
         }
         return result
     }
@@ -326,7 +399,8 @@ public struct CutDetector {
     /// 谢谢谢谢 (emphasis). Stutters such as 我们我们 or 这个这个 are pronouns, conjunctions or partial words.
     static func isReduplication(_ unit: String, in text: String, at offset: Int) -> Bool {
         guard unit.contains(where: isCJK), offset < text.count else { return false }
-        if Set(unit).count == 1 { return true }
+        // 一步一步, 一点一点: one-by-one reduplication rather than a stutter.
+        if Set(unit).count == 1 || (unit.count == 2 && unit.hasPrefix("一")) { return true }
         let tagger = NLTagger(tagSchemes: [.lexicalClass])
         tagger.string = text
         let (tag, range) = tagger.tag(

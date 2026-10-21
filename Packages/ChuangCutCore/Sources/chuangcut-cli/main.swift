@@ -7,7 +7,7 @@ import Foundation
             let args = Array(CommandLine.arguments.dropFirst())
             guard let path = args.first, !path.hasPrefix("--") else {
                 print(
-                    "Usage: chuangcut-cli <input.mp4> --out <dir> [--model PATH] [--lang zh|auto] [--pause 0.6] [--burn] [--trim INDEX:left|right:SECONDS]…"
+                    "Usage: chuangcut-cli <input.mp4> --out <dir> [--model PATH | --engine doubao] [--lang zh|auto] [--pause 0.6] [--burn | --no-export] [--trim INDEX:left|right:SECONDS]…"
                 )
                 return
             }
@@ -18,10 +18,20 @@ import Foundation
             guard let out = value("--out") else { throw ChuangCutError.message("--out is required") }
             let source = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             let destination = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
-            let model =
-                value("--model").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-                ?? ModelManager.discover().first
-            guard let model else { throw ChuangCutError.message("No ggml model found. Pass --model PATH.") }
+            let engine: TranscriptionEngine
+            if value("--engine") == "doubao" {
+                // The key comes from the environment so it stays out of shell history.
+                guard let key = ProcessInfo.processInfo.environment["DOUBAO_ASR_API_KEY"], !key.isEmpty else {
+                    throw ChuangCutError.message("--engine doubao needs DOUBAO_ASR_API_KEY in the environment")
+                }
+                engine = .doubao(apiKey: key, hotwordTable: value("--hotword-table"))
+            } else {
+                let model =
+                    value("--model").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+                    ?? ModelManager.discover().first
+                guard let model else { throw ChuangCutError.message("No ggml model found. Pass --model PATH.") }
+                engine = .whisper(model: model)
+            }
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
             var settings = DetectionSettings()
             if let pause = value("--pause") {
@@ -43,9 +53,12 @@ import Foundation
                 interrupt.cancel()
                 terminate.cancel()
             }
-            print("Model: \(model.lastPathComponent)")
+            switch engine {
+            case .whisper(let model): print("Model: \(model.lastPathComponent)")
+            case .doubao: print("Engine: Doubao Seed-ASR")
+            }
             var project = try Pipeline().analyze(
-                input: source, model: model, language: value("--lang") ?? "zh", settings: settings,
+                input: source, engine: engine, language: value("--lang") ?? "zh", settings: settings,
                 cancellation: cancellation
             ) { stage, percent in
                 if percent == 1 || percent == 0.02 || percent == 0.8 { print("\(stage) \(Int(percent * 100))%") }
@@ -72,16 +85,18 @@ import Foundation
             try JSONFile.write(project.transcript!, to: destination.appendingPathComponent("transcript.json"))
             try JSONFile.write(project.candidates, to: destination.appendingPathComponent("cuts.json"))
             var options = ExportOptions()
-            try FFmpegRunner().export(
-                project: project, to: destination.appendingPathComponent("cut.mp4"), options: options,
-                cancellation: cancellation
-            ) { _ in }
-            if args.contains("--burn") {
-                options.burnSubtitles = true
+            if !args.contains("--no-export") {
                 try FFmpegRunner().export(
-                    project: project, to: destination.appendingPathComponent("cut_burned.mp4"), options: options,
+                    project: project, to: destination.appendingPathComponent("cut.mp4"), options: options,
                     cancellation: cancellation
                 ) { _ in }
+                if args.contains("--burn") {
+                    options.burnSubtitles = true
+                    try FFmpegRunner().export(
+                        project: project, to: destination.appendingPathComponent("cut_burned.mp4"), options: options,
+                        cancellation: cancellation
+                    ) { _ in }
+                }
             }
             print(
                 String(

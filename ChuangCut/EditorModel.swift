@@ -268,9 +268,11 @@ import SwiftUI
         let tools = settings.tools
         let detection = settings.detection
         let language = settings.language
-        let model = URL(fileURLWithPath: (settings.modelPath as NSString).expandingTildeInPath)
-        guard FileManager.default.fileExists(atPath: model.path), !settings.modelPath.isEmpty else {
-            error = "Choose or download a Whisper model in Settings."
+        let engine: TranscriptionEngine
+        switch settings.engine {
+        case .success(let value): engine = value
+        case .failure(let failure):
+            error = failure.localizedDescription
             return
         }
         pause()
@@ -282,7 +284,7 @@ import SwiftUI
             do {
                 let analyzed = try await Task.detached(priority: .userInitiated) { [weak self] in
                     try Pipeline(tools: tools).analyze(
-                        input: project.source, model: model, language: language, settings: detection,
+                        input: project.source, engine: engine, language: language, settings: detection,
                         cancellation: token
                     ) { stage, progress in
                         Task { @MainActor in

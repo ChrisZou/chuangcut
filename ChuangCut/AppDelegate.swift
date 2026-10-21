@@ -38,7 +38,7 @@ import SwiftUI
                 item.image = .symbol(symbol, label)
                 tabs.addTabViewItem(item)
             }
-            tab("Models", "cpu", ModelSettingsView())
+            tab("Transcription", "text.bubble", TranscriptionSettingsView())
             tab("Detection", "waveform", DetectionSettingsView())
             tab("Subtitles", "captions.bubble", SubtitleSettingsView(model: model))
             let window = NSWindow(contentViewController: tabs)

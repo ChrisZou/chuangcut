@@ -1,5 +1,6 @@
 import AppKit
 import ChuangCutCore
+import Combine
 import SwiftUI
 
 extension NSToolbarItem.Identifier {
@@ -334,9 +335,14 @@ private final class DropHighlight: NSView {
 private final class EmptyStateView: NSView {
     private let model: EditorModel
     private let status = NSStackView()
+    private var settingsChange: AnyCancellable?
     init(model: EditorModel) {
         self.model = model
         super.init(frame: .zero)
+        // objectWillChange fires before the new value is stored; read it on the next turn of the run loop.
+        settingsChange = AppSettings.shared.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
+            self?.refresh()
+        }
         let icon = NSImageView(image: .symbol("film.stack", nil, size: 52, weight: .light))
         icon.contentTintColor = .controlAccentColor
         let title = NSTextField.label(17, weight: .medium)
@@ -357,15 +363,19 @@ private final class EmptyStateView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func refresh() {
         for view in status.arrangedSubviews { view.removeFromSuperview() }
-        let path = AppSettings.shared.modelPath
-        if FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath) {
+        let settings = AppSettings.shared
+        if case .success(let engine) = settings.engine {
             let check = NSImageView(image: .symbol("checkmark.circle.fill", nil, size: 10))
             check.contentTintColor = .secondaryLabelColor
             let label = NSTextField.label(10, color: .secondaryLabelColor)
-            label.stringValue = "Model: " + URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+            switch engine {
+            case .doubao: label.stringValue = "Transcription: Doubao Seed-ASR"
+            case .whisper(let model): label.stringValue = "Model: " + model.deletingPathExtension().lastPathComponent
+            }
             status.setViews([check, label], in: .center)
         } else {
-            let link = NSButton(title: "No model — Download", target: self, action: #selector(openSettings))
+            let title = settings.transcriber == .doubao ? "No Doubao API key — Settings" : "No model — Download"
+            let link = NSButton(title: title, target: self, action: #selector(openSettings))
             link.isBordered = false
             link.contentTintColor = .linkColor
             status.setViews([link], in: .center)

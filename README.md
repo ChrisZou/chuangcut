@@ -1,10 +1,10 @@
 # ChuangCut
 
-A native macOS editor for removing pauses, fillers, and earlier takes from spoken video. Processing stays on your Mac. The editor window is AppKit; Settings and the Export sheet are SwiftUI forms. It uses AVFoundation, whisper.cpp, and ffmpeg.
+A native macOS editor for removing pauses, fillers, and earlier takes from spoken video. Transcription uses Doubao Seed-ASR in the cloud by default, or whisper.cpp on this Mac; everything else stays local. The editor window is AppKit; Settings and the Export sheet are SwiftUI forms. It uses AVFoundation, ffmpeg and, for on-device transcription, whisper.cpp.
 
 ## Build and run
 
-Requires macOS 14+, Xcode, Swift 5.9+, ffmpeg/ffprobe, and whisper-cli. No third-party Swift dependencies.
+Requires macOS 14+, Xcode, Swift 5.9+ and ffmpeg/ffprobe, plus a Doubao API key or whisper-cli. No third-party Swift dependencies.
 
 ```sh
 cd Packages/ChuangCutCore
@@ -50,6 +50,8 @@ To test dragging an **unselected** clip edge, launch with `--select-segment 0 --
 
 ## Settings and models
 
+Settings › Transcription picks the engine. **Doubao Seed-ASR** (default) sends a mono 16 kHz MP3 of the audio to Volcengine's recording-file recognition flash endpoint (`volc.seedasr.auc`) and gets the whole transcript back in one response: about 4 s for 5 minutes and 12 s for 30 minutes of audio. It writes down what was said, restarts and repeated phrases included, with its own timestamp for every character; Whisper tidies speech into subtitles and drops most of them, so retake detection can only find takes Doubao reports. It needs an API key with 录音文件识别大模型 enabled; an optional hotword table ID (Volcengine console › 热词管理) improves names and product terms. The key is stored in the app's preferences. **Whisper** runs offline with a local ggml model, configured below.
+
 The default language is Chinese. Auto, English, Japanese, Korean, French, German, and Spanish are available. Pause threshold defaults to 0.6 s; each side retains 0.10 s of padding.
 
 Settings persist model/tool paths, language, fillers, thresholds, and subtitle style. The default tool lookup checks `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, then `which`; a GUI process does not depend on a shell's PATH.
@@ -77,7 +79,7 @@ Packages/ChuangCutCore/.build/debug/chuangcut-cli input.mp4 \
   --lang zh --pause 0.6 --burn
 ```
 
-Only the input and `--out` are required. `--model` defaults to the first discovered recommended model. `--lang auto` enables automatic language detection. Ctrl-C terminates the active subprocess.
+Only the input and `--out` are required. `--model` defaults to the first discovered recommended model. `--engine doubao` transcribes with Doubao instead, reading the key from `DOUBAO_ASR_API_KEY` (so it stays out of shell history); `--hotword-table ID` adds a hotword table. `--no-export` writes the project, transcript and cuts without rendering video. `--lang auto` enables automatic language detection. Ctrl-C terminates the active subprocess.
 
 Apply edge adjustments after detection (indices are zero-based and resolve after preceding trims):
 
@@ -111,7 +113,7 @@ ChuangCut/                         Native app
   TimelineView.swift               AppKit clip strips, trim handles, ruler and zoom
   ThumbnailStore.swift             Async AVAssetImageGenerator + bounded cache
   SubtitlePreview.swift            SwiftUI subtitle raster over a video frame
-  SettingsView.swift               SwiftUI Settings tabs: models, detection, subtitles
+  SettingsView.swift               SwiftUI Settings tabs: transcription, detection, subtitles
   ExportView.swift                 SwiftUI export configuration and live preview
   AppSettings.swift                Persisted UI preferences
 Packages/ChuangCutCore/
@@ -119,6 +121,7 @@ Packages/ChuangCutCore/
     Models.swift                  Codable project, words, segments, cuts, style
     ProcessRunner.swift           Drained stdout/stderr, tool lookup, cancellation
     WhisperRunner.swift           whisper.cpp, progress, token normalization
+    DoubaoRunner.swift            Doubao Seed-ASR flash request and per-character parsing
     FFmpegRunner.swift            Probe, WAV, silence, peaks, single-pass export
     CutDetector.swift             Pure pause/filler/retake heuristics
     TimelineMapper.swift          Cut union, kept ranges, source/edit mapping
@@ -136,9 +139,9 @@ project.yml                       XcodeGen source
 ChuangCut.xcodeproj/               Ready-to-open generated project
 ```
 
-The package owns all media, detection, timeline and subtitle logic. Source identity (path, size, modification time) selects `~/Library/Application Support/ChuangCut/cache/<sha256>/`. Transcripts additionally key on model identity, language, and alignment version. Cache directories contain raw Whisper JSON, normalized transcripts and `project.json`; candidate edits are saved automatically. Whisper's 16 kHz WAV input is extracted to a temporary file and deleted after transcription; WAV copies left by earlier versions are removed at app launch. Transcripts are small and are not evicted. Moving or renaming a video changes its identity, so its cached project is not found at the new location.
+The package owns all media, detection, timeline and subtitle logic. Source identity (path, size, modification time) selects `~/Library/Application Support/ChuangCut/cache/<sha256>/`. Transcripts additionally key on the engine: Whisper model identity, language and alignment version, or Doubao with its hotword table. Cache directories contain raw Whisper JSON, normalized transcripts and `project.json`; candidate edits are saved automatically. Whisper's 16 kHz WAV input is extracted to a temporary file and deleted after transcription; WAV copies left by earlier versions are removed at app launch. Transcripts are small and are not evicted. Moving or renaming a video changes its identity, so its cached project is not found at the new location.
 
-Acoustic `silencedetect` results are authoritative when available, avoiding false pauses inside speech from inaccurate ASR offsets. Word-only detection is supported as a fallback. Before detection, word spans are aligned to those silences: Whisper segment boundaries often absorb neighbouring silence, so words are trimmed to speech and words lying wholly inside a silence move to the speech edge they belong to; a word Whisper stretched over a whole pause keeps its longer side. This keeps audible words in subtitles and lets clauses split at real pauses. Clauses split on punctuation, Whisper segment ends and long gaps, except where the gap falls inside a word (里|面). Only the last take of an expression is kept: a run of up to four clauses is an earlier take when a clause in the next 45 seconds starts with it again, possibly longer or slightly reworded (80% character similarity, 75% from twelve characters), or, from eight characters, when it is said again anywhere in that window. Runs catch takes that a pause split into pieces. Short fragments such as 所以 or 我把 count only when restarted at once or followed by another earlier take. A retake joins an adjacent pause cut but never reaches a kept word between them. Reworded attempts with different words (里面有大量… → 里面包含了大量…) are not recognized. Fillers are cut only where they open or close a sentence: after 。！？, a Whisper segment end or a pause long enough to be cut, or before one. A filler between two pieces of content is kept, because cutting inside continuous speech breaks its rhythm. At those edges, isolated/repeated contextual filler clauses (“嗯，” “那个那个，”) and standalone hesitation tokens without punctuation (嗯、呃、额、um、uh、er) are cut; normal phrases such as “那个视频” and “这个软件” are protected. Hesitation characters count only as standalone words, so 额度、金额、名额、额外 are kept. Immediate repeats skip deliberate reduplication (哈哈哈哈, verb forms such as 体验体验/研究研究); pronoun or conjunction stutters such as 我们我们 are cut. Parallel list items that differ by an ordinal (第一个…/第二个…, 首先…/其次…) are not retakes. The default list deliberately does not include ordinary connective “然后”.
+Acoustic `silencedetect` results are authoritative when available, avoiding false pauses inside speech from inaccurate ASR offsets. Word-only detection is supported as a fallback. Before detection, word spans are aligned to those silences: Whisper segment boundaries often absorb neighbouring silence, so words are trimmed to speech and words lying wholly inside a silence move to the speech edge they belong to; a word Whisper stretched over a whole pause keeps its longer side. This keeps audible words in subtitles and lets clauses split at real pauses. Clauses split on punctuation, Whisper segment ends and long gaps, except where the gap falls inside a word (里|面). Only the last take of an expression is kept: a run of up to four clauses is an earlier take when a clause in the next 45 seconds starts with it again, possibly longer or slightly reworded (80% character similarity, 75% from twelve characters), or, from eight characters, when it is said again anywhere in that window. Runs catch takes that a pause split into pieces. Short fragments such as 所以 or 我把 count only when restarted at once or followed by another earlier take. Within a clause, a start that the following words begin with again is cut first (我们我们决定, 里面包里面包含, 我们都知道 A 我们都知道 AI), so the rest of the clause is compared with later takes on its own. When a restart follows the last words of an abandoned take with no pause (所以为了 ⏸ 所以为了我们都知道 AI…), those words repeat the end of the clause before and the rest opens like an earlier clause; they are cut with the abandoned take. A retake joins an adjacent pause cut but never reaches a kept word between them, and any gap of up to 2 s between a speech cut and another cut that holds no kept word is closed, so no breath or padding survives between two removed takes. Reworded attempts with different words (里面有大量… → 里面包含了大量…) are not recognized. Fillers are cut only where they open or close a sentence: after 。！？, a Whisper segment end or a pause long enough to be cut, or before one. A filler between two pieces of content is kept, because cutting inside continuous speech breaks its rhythm. At those edges, isolated/repeated contextual filler clauses (“嗯，” “那个那个，”) and standalone hesitation tokens without punctuation (嗯、呃、额、um、uh、er) are cut; normal phrases such as “那个视频” and “这个软件” are protected. Hesitation characters count only as standalone words, so 额度、金额、名额、额外 are kept. Immediate repeats skip deliberate reduplication (哈哈哈哈, 一步一步, verb forms such as 体验体验/研究研究); pronoun or conjunction stutters such as 我们我们 are cut. Parallel list items that differ by an ordinal (第一个…/第二个…, 首先…/其次…) are not retakes. The default list deliberately does not include ordinary connective “然后”.
 
 Export runs **one ffmpeg encoding pass per video**: `trim/atrim → setpts/asetpts → concat → optional overlay`. Hardware presets use `h264_videotoolbox` with source-derived bitrates; the software option uses `libx264` CRF 20. Audio is AAC 192 kb/s and MP4 has fast-start metadata. Video-only imports can be exported with a silent audio track; transcription requires audio.
 
@@ -167,4 +170,5 @@ See `VERIFICATION.md` for the final build, test and native UI results.
 - Preview uses source seeks, so a join may briefly buffer. Export is decoded and re-encoded at frame boundaries; container duration may differ by one frame from the continuous-time mapping.
 - No automatic audio crossfade at hard joins. Display rotation (phone portrait video) is honored for previews and burned subtitles; HDR/color-management and anamorphic (non-square pixel) sources have not been validated.
 - Long projects create large filter graphs and subtitle image sequences. Model and temporary media storage are not quota-managed. Downloads do not resume across app restarts.
+- Doubao transcription needs network access and uploads the audio to Volcengine; results can differ slightly between runs.
 - The app does not bundle ffmpeg, whisper-cli, or model weights. No App Store sandbox, notarization, signing for distribution, or automatic updates in this development V1.

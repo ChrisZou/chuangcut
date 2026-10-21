@@ -18,11 +18,32 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(transcript.words.map(\.text).joined(), transcript.segments.map(\.text).joined())
         let cuts = CutDetector().detect(words: transcript.words, duration: 25.19)
         let retake = try XCTUnwrap(cuts.first { $0.kind == .retake })
-        XCTAssertEqual(retake.sourceStart, 4.48, accuracy: 0.05)
-        XCTAssertEqual(retake.sourceEnd, 7.16, accuracy: 0.05)
+        // The first take runs from 4.48 s to 7.16 s and takes in the padding of the pauses around it.
+        XCTAssertEqual(retake.sourceStart, 4.38, accuracy: 0.05)
+        XCTAssertEqual(retake.sourceEnd, 7.26, accuracy: 0.05)
         XCTAssertEqual(cuts.filter { $0.kind == .filler }.count, 2)
         XCTAssertFalse(cuts.contains { $0.kind == .retake && $0.sourceStart > 8 })
         XCTAssertGreaterThanOrEqual(cuts.filter { $0.kind == .pause }.count, 4)
+    }
+    func testDoubaoWordsKeepTheirOwnTimes() throws {
+        let json = #"""
+            {"result":{"utterances":[{"start_time":5530,"end_time":7290,"text":"我们都知道 AI 已经，我们",
+            "words":[{"start_time":5530,"end_time":5730,"text":"我"},{"start_time":5730,"end_time":5810,"text":"们"},
+            {"start_time":5810,"end_time":5930,"text":"都"},{"start_time":5930,"end_time":6050,"text":"知"},
+            {"start_time":6050,"end_time":6170,"text":"道"},{"start_time":-1,"end_time":-1,"text":" "},
+            {"start_time":6250,"end_time":6410,"text":"AI"},{"start_time":-1,"end_time":-1,"text":" "},
+            {"start_time":6490,"end_time":6650,"text":"已"},{"start_time":6650,"end_time":6770,"text":"经"},
+            {"start_time":7090,"end_time":7170,"text":"我"},{"start_time":7170,"end_time":7290,"text":"们"}]}]}}
+            """#
+        let transcript = try DoubaoRunner.parse(Data(json.utf8))
+        XCTAssertEqual(transcript.segments.count, 1)
+        XCTAssertEqual(transcript.segments[0].start, 5.53, accuracy: 0.001)
+        XCTAssertEqual(transcript.words.map(\.text), ["我", "们", "都", "知", "道", " AI", "已", "经", "，", "我", "们"])
+        XCTAssertEqual(transcript.words[5].start, 6.25, accuracy: 0.001)
+        XCTAssertEqual(transcript.words[5].end, 6.41, accuracy: 0.001)
+        // Punctuation sits at the end of the word before it, taking no time.
+        XCTAssertEqual(transcript.words[8].start, 6.77, accuracy: 0.001)
+        XCTAssertEqual(transcript.words[8].end, 6.77, accuracy: 0.001)
     }
     func testFillerContextAndFalseStart() {
         let input = words("那个视频很好。这个软件很好。嗯，那个，今天我们来聊。今天我们来聊视频剪辑。")

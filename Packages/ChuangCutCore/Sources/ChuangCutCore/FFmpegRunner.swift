@@ -53,6 +53,13 @@ public struct FFmpegRunner {
                 output.path,
             ], cancellation: cancellation)
     }
+    /// Mono 16 kHz MP3 for uploading: about 22 MB per hour, a fifth of the WAV.
+    public func extractSpeech(_ input: URL, to output: URL, cancellation: CancellationToken) throws {
+        _ = try ProcessRunner.run(
+            tools.ffmpeg,
+            ["-y", "-v", "error", "-i", input.path, "-vn", "-ar", "16000", "-ac", "1", "-b:a", "48k", output.path],
+            cancellation: cancellation)
+    }
     public func silence(_ input: URL, threshold: Double, duration: Double, cancellation: CancellationToken) throws
         -> [TimeRange]
     {
