@@ -176,3 +176,9 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - The toolbar holds only Import and Export; the media/cut sidebar is gone. Split moved to the timeline header; Transcribe Again…, Detect Cuts Again, Preview Cuts and Snap Trim Edges are in a new Clip menu (Playback keeps play and seek). A video without a transcript is transcribed when it opens.
 - In the app: the window shows player, transcript and timeline only; the Clip menu lists its seven commands; Split at 00:05 made eight clips and ⌘Z restored seven.
 
+## Timeline thumbnails no longer flicker
+
+- A screen recording showed timeline tiles vanishing and reappearing while the app sat idle. Sampling the idle app found it regenerating thumbnails and redrawing the timeline continuously (8.8% CPU, 168 MB footprint), and the system's memory pressure level was 2 (warn). NSCache drops its contents under memory pressure, and the timeline immediately regenerated every visible tile, so the strip kept flickering.
+- Thumbnails now live in a bounded dictionary (300 tiles, oldest out first) generated at 320 × 180 instead of 640 × 360, about a quarter of the memory; failed frames are not re-requested. The export preview's poster is generated separately at 960 × 540.
+- In the app: idle CPU 0.0–0.1%, footprint 95–107 MB; tiles render at both zoom levels and the export sheet shows the poster.
+
