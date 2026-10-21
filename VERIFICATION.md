@@ -141,3 +141,9 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - Native checks through accessibility on the fixture: toggling a cut updated the sidebar, durations, window subtitle and timeline; ⌘Z used the native Edit menu (**Redo Toggle cut**, **Undo Split clip**); Space, ←/→ and ⌘B worked; selecting a clip then Delete created a manual cut and Escape deselected it; dragging a clip edge trimmed a pause to 20.48 s with an **Adjusted** badge; selecting transcript text then Delete created a manual cut; sidebar row clicks seek, and the group checkbox toggles all fillers.
 - Space and Delete typed into the Export sheet's Font field and the Settings Fillers field instead of playing or removing clips. Escape closed the Export sheet. The Transcribe-again confirmation and its Cancel worked. The empty state, the processing bar and timeline auto-scroll during playback were checked on screen.
 - AVPlayerView's Live Text analysis of a paused frame used to take first responder from the timeline, which is why the old shell tracked timeline focus itself. It is now disabled (`allowsVideoFrameAnalysis = false`).
+
+## Fillers only at sentence edges
+
+- Fillers inside a sentence are no longer cut; only those opening or closing a sentence (after 。！？, a Whisper segment end or a pause of at least the threshold) are. `RobustnessTests.testFillersAreCutOnlyAtSentenceEdges` covers mid-sentence 额/嗯/那个, sentence-initial and final fillers, pause boundaries and unpunctuated segment ends.
+- Re-running detection on every cached test project gave identical filler and retake cuts (28.5-minute recording: 48 fillers, 31 retakes; fixture: 2 fillers, 1 retake), because each of their fillers follows a sentence end or a cut pause.
+- `swift test`: 37 tests, 0 failures. Debug `xcodebuild`: BUILD SUCCEEDED. `Scripts/verify_fixture.py` passed both the base and trimmed runs.

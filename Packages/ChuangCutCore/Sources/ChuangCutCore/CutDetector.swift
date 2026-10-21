@@ -9,7 +9,7 @@ public struct CutDetector {
     private func normalized(_ text: String) -> String {
         text.lowercased().unicodeScalars.filter { !Self.punctuationOrSpace.contains($0) }.map(String.init).joined()
     }
-    public func clauses(_ words: [Word]) -> [[Word]] {
+    public func clauses(_ words: [Word], sentenceEnds: Set<UUID> = []) -> [[Word]] {
         var result: [[Word]] = []
         var current: [Word] = []
         for word in words {
@@ -18,7 +18,7 @@ public struct CutDetector {
                 current = []
             }
             current.append(word)
-            if word.text.unicodeScalars.contains(where: { delimiters.contains($0) }) {
+            if word.text.unicodeScalars.contains(where: { delimiters.contains($0) }) || sentenceEnds.contains(word.id) {
                 result.append(current)
                 current = []
             }
@@ -26,7 +26,11 @@ public struct CutDetector {
         if !current.isEmpty { result.append(current) }
         return result.filter { $0.contains { !$0.isPunctuation } }
     }
-    public func detect(words: [Word], duration: Double, silences: [TimeRange] = []) -> [CutCandidate] {
+    /// `sentenceEnds` holds the last word of each Whisper segment; segments are sentence-like even
+    /// when Whisper emits no sentence-final punctuation.
+    public func detect(
+        words: [Word], duration: Double, silences: [TimeRange] = [], sentenceEnds: Set<UUID> = []
+    ) -> [CutCandidate] {
         guard !words.isEmpty else { return [] }
         var candidates: [CutCandidate] = []
         // When available, acoustic silence is authoritative: ASR often leaves false gaps inside speech.
@@ -50,41 +54,17 @@ public struct CutDetector {
                         reason: "Silence longer than threshold"))
             }
         }
-        let allClauses = clauses(words)
+        let allClauses = clauses(words, sentenceEnds: sentenceEnds)
         let fillers = Set(settings.fillers.map(normalized))
         var meaningful: [[Word]] = []
-        for clause in allClauses {
-            let text = clause.map(\.text).joined()
-            let norm = normalized(text)
-            // Whole-clause matching protects e.g. “那个视频” and “这个软件”.
-            let repeatedFiller = fillers.contains { filler in
-                !filler.isEmpty && norm.count >= filler.count * 2
-                    && norm.replacingOccurrences(of: filler, with: "").isEmpty
-            }
-            if fillers.contains(norm) || repeatedFiller {
-                let start = clause.first!.start
-                let end = max(start + 0.02, clause.map(\.end).max()!)
-                candidates.append(
-                    CutCandidate(
-                        kind: .filler, start: max(0, start - 0.015), end: min(duration, end + 0.015), text: text,
-                        reason: "Isolated filler clause"))
-            } else {
-                meaningful.append(clause)
-                // Unambiguous hesitation tokens can occur without punctuation.
-                var offset = 0
-                for word in clause {
-                    defer { offset += word.text.count }
-                    let token = normalized(word.text)
-                    guard ["嗯", "呃", "额", "um", "uh", "er"].contains(token), fillers.contains(token) else { continue }
-                    // 额 is also part of ordinary words (额度, 金额, 名额, 额外); only a standalone one is a filler.
-                    if token.contains(where: isCJK), Self.wordLength(in: text, at: offset) > word.text.count {
-                        continue
-                    }
-                    candidates.append(
-                        CutCandidate(
-                            kind: .filler, start: word.start, end: max(word.end, word.start + 0.02), text: word.text,
-                            reason: "Hesitation token"))
-                }
+        var sentence: [(words: [Word], isFiller: Bool)] = []
+        for (index, clause) in allClauses.enumerated() {
+            let isFiller = isFillerClause(clause, fillers)
+            if !isFiller { meaningful.append(clause) }
+            sentence.append((clause, isFiller))
+            if index == allClauses.count - 1 || endsSentence(clause, before: allClauses[index + 1], sentenceEnds) {
+                candidates += edgeFillers(sentence, fillers: fillers, duration: duration)
+                sentence = []
             }
         }
         for i in meaningful.indices {
@@ -150,6 +130,66 @@ public struct CutDetector {
             }
         }
         return candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
+    }
+    /// Whole-clause matching protects e.g. “那个视频” and “这个软件”.
+    private func isFillerClause(_ clause: [Word], _ fillers: Set<String>) -> Bool {
+        let norm = normalized(clause.map(\.text).joined())
+        return fillers.contains(norm)
+            || fillers.contains { filler in
+                !filler.isEmpty && norm.count >= filler.count * 2
+                    && norm.replacingOccurrences(of: filler, with: "").isEmpty
+            }
+    }
+    /// A sentence ends at 。！？, at the end of a Whisper segment, or at a pause long enough to be cut.
+    private func endsSentence(_ clause: [Word], before next: [Word], _ sentenceEnds: Set<UUID>) -> Bool {
+        guard let last = clause.last, let following = next.first(where: { !$0.isPunctuation }) else { return true }
+        if sentenceEnds.contains(last.id) || last.text.contains(where: { "。！？.!?".contains($0) }) { return true }
+        let end = clause.last(where: { !$0.isPunctuation })?.end ?? last.end
+        return following.start - end >= settings.pauseThreshold
+    }
+    private static let hesitations: Set<String> = ["嗯", "呃", "额", "um", "uh", "er"]
+    /// Cuts the fillers that open or close a sentence: whole filler clauses (“嗯，” “那个那个，”) and
+    /// hesitation tokens, which can occur without punctuation. Fillers between two pieces of content
+    /// are kept, because cutting inside continuous speech breaks its rhythm.
+    private func edgeFillers(
+        _ sentence: [(words: [Word], isFiller: Bool)], fillers: Set<String>, duration: Double
+    ) -> [CutCandidate] {
+        // One entry per filler clause or spoken word; nil marks content.
+        var units: [CutCandidate?] = []
+        for clause in sentence {
+            let text = clause.words.map(\.text).joined()
+            if clause.isFiller {
+                let start = clause.words.first!.start
+                let end = max(start + 0.02, clause.words.map(\.end).max()!)
+                units.append(
+                    CutCandidate(
+                        kind: .filler, start: max(0, start - 0.015), end: min(duration, end + 0.015), text: text,
+                        reason: ""))
+                continue
+            }
+            var offset = 0
+            for word in clause.words {
+                defer { offset += word.text.count }
+                if word.isPunctuation { continue }
+                let token = normalized(word.text)
+                // 额 is also part of ordinary words (额度, 金额, 名额, 额外); only a standalone one is a filler.
+                let isHesitation =
+                    Self.hesitations.contains(token) && fillers.contains(token)
+                    && !(token.contains(where: isCJK) && Self.wordLength(in: text, at: offset) > word.text.count)
+                units.append(
+                    isHesitation
+                        ? CutCandidate(
+                            kind: .filler, start: word.start, end: max(word.end, word.start + 0.02), text: word.text,
+                            reason: "") : nil)
+            }
+        }
+        let first = units.firstIndex { $0 == nil } ?? units.count
+        let last = units.lastIndex { $0 == nil } ?? units.count
+        return units.indices.compactMap { index in
+            guard var cut = units[index], index < first || index > last else { return nil }
+            cut.reason = index < first ? "Filler at the start of a sentence" : "Filler at the end of a sentence"
+            return cut
+        }
     }
     /// Length of the segmented word containing the character at `offset`.
     static func wordLength(in text: String, at offset: Int) -> Int {

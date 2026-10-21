@@ -315,7 +315,8 @@ import SwiftUI
                     return (
                         silences,
                         CutDetector(settings: settings).detect(
-                            words: aligned.words, duration: project.media.duration, silences: silences),
+                            words: aligned.words, duration: project.media.duration, silences: silences,
+                            sentenceEnds: aligned.sentenceEnds),
                         aligned
                     )
                 }.value

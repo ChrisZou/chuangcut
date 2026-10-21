@@ -20,10 +20,9 @@ public struct SubtitleBuilder {
     public func build(
         transcript: Transcript?, mapper: TimelineMapper, fillers: [CutCandidate] = [], maxCues: Int = .max
     ) -> [SubtitleCue] {
-        let segments = transcript?.segments ?? []
-        return build(
-            words: segments.flatMap(\.words), mapper: mapper, fillers: fillers, maxCues: maxCues,
-            sentenceEnds: Set(segments.compactMap { $0.words.last?.id }))
+        build(
+            words: transcript?.words ?? [], mapper: mapper, fillers: fillers, maxCues: maxCues,
+            sentenceEnds: transcript?.sentenceEnds ?? [])
     }
     /// `maxCues` stops early when a caller such as a style preview needs only the first cues.
     public func build(

@@ -56,6 +56,8 @@ public struct Transcript: Codable, Equatable, Sendable {
             language: try c.decodeIfPresent(String.self, forKey: .language) ?? "zh")
     }
     public var words: [Word] { segments.flatMap(\.words) }
+    /// The last word of each segment.
+    public var sentenceEnds: Set<UUID> { Set(segments.compactMap { $0.words.last?.id }) }
 }
 public enum CutKind: String, Codable, CaseIterable, Sendable { case pause, retake, filler, manual }
 public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {

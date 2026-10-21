@@ -26,8 +26,21 @@ final class RobustnessTests: XCTestCase {
     func testHesitationCharacterInsideWordsIsKept() {
         XCTAssertEqual(speechCuts(["Claude的免费额度用完了，", "这个金额不算高。"]), [])
         XCTAssertEqual(speechCuts(["名额有限，", "还有额外的功能。"]), [])
-        XCTAssertEqual(speechCuts(["我们额先看一下。"]), ["filler:额"])
         XCTAssertEqual(speechCuts(["额我觉得可以。"]), ["filler:额"])
+    }
+    func testFillersAreCutOnlyAtSentenceEdges() {
+        XCTAssertEqual(speechCuts(["我们额先看一下。"]), [])
+        XCTAssertEqual(speechCuts(["这个功能，嗯，那个，其实挺好用的。"]), [])
+        XCTAssertEqual(speechCuts(["嗯，那个，今天我们来聊。"]), ["filler:嗯，", "filler:那个，"])
+        XCTAssertEqual(speechCuts(["今天就到这里，嗯。"]), ["filler:嗯。"])
+        XCTAssertEqual(speechCuts(["嗯我们开始吧嗯"]), ["filler:嗯", "filler:嗯"])
+        // A pause long enough to be cut ends a sentence, as does a Whisper segment without punctuation.
+        XCTAssertEqual(speechCuts(["这个功能，", "嗯，其实挺好用的。"], gap: 1), ["filler:嗯，"])
+        let input = words(["我们开始吧", "嗯先看第一个"], gap: 0.1)
+        let detector = CutDetector()
+        XCTAssertEqual(detector.detect(words: input, duration: 4).filter { $0.kind == .filler }.count, 0)
+        let cuts = detector.detect(words: input, duration: 4, sentenceEnds: [input[4].id])
+        XCTAssertEqual(cuts.filter { $0.kind == .filler }.map(\.text), ["嗯"])
     }
     func testReduplicationAndLaughterAreNotStutters() {
         XCTAssertEqual(speechCuts(["我们来体验体验这个功能。", "大家可以研究研究。"]), [])
