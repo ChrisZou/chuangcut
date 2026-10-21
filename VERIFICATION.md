@@ -147,3 +147,10 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - Fillers inside a sentence are no longer cut; only those opening or closing a sentence (after 。！？, a Whisper segment end or a pause of at least the threshold) are. `RobustnessTests.testFillersAreCutOnlyAtSentenceEdges` covers mid-sentence 额/嗯/那个, sentence-initial and final fillers, pause boundaries and unpunctuated segment ends.
 - Re-running detection on every cached test project gave identical filler and retake cuts (28.5-minute recording: 48 fillers, 31 retakes; fixture: 2 fillers, 1 retake), because each of their fillers follows a sentence end or a cut pause.
 - `swift test`: 37 tests, 0 failures. Debug `xcodebuild`: BUILD SUCCEEDED. `Scripts/verify_fixture.py` passed both the base and trimmed runs.
+
+## Keeping only the last take
+
+- A real retake-heavy recording (C5245.MP4, 4:51, ~80 Whisper segments of repeated attempts) kept 1:55.8 with the old rule, including two complete copies of the opening and five of 「我把我之前在字节面试过四五百号人」. With the new rule it keeps 43.5 s that read as one pass of the script. Remaining leftovers are reworded attempts (「里面有大量你意识」, 「你意想不到的事情」) and a Whisper hallucination (「请不吝点赞 订阅 转发…」) over real speech.
+- `RobustnessTests` adds multi-sentence takes restarted from different points, a take split by a pause, a word-order rewording, distinct sentences sharing an opening, a legitimate 「所以，」, a repeat outside the 45-second window, a pause inside a word, and a word stretched over a pause. `swift test`: 41 tests, 0 failures.
+- Detection on the 28.5-minute synthetic recording takes 1.8 s in a debug build. That script repeats near-identical paragraphs every 25 seconds, so it now loses most of them; it remains a performance fixture, not a false-positive check.
+- In the app: Detect on C5245 gave 00:43.5 edited. Clicking a kept transcript word seeked to it (source 00:36.7); clicking a removed word seeked to its cut's start (00:00.1, inside a 32.5 s run of earlier takes). A pause pill toggled 43.5 → 44.0 → 43.5 s; dragging over text selected it without seeking, Delete cut it and ⌘Z restored it.

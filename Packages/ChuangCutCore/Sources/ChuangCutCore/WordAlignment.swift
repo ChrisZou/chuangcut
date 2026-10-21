@@ -26,7 +26,17 @@ extension Transcript {
                 inside[i] = first
                 continue
             }
-            if first < gaps.count, gaps[first].start <= word.start { words[i].start = gaps[first].end }
+            if first < gaps.count, gaps[first].start <= word.start {
+                words[i].start = gaps[first].end
+            } else if first < gaps.count, gaps[first].end < word.end {
+                // A silence inside the word: Whisper stretched it over the pause, so it was said on the
+                // longer side.
+                if gaps[first].start - word.start >= word.end - gaps[first].end {
+                    words[i].end = gaps[first].start
+                } else {
+                    words[i].start = gaps[first].end
+                }
+            }
             let last = TimelineMapper.firstIndex(count: gaps.count) { gaps[$0].end >= word.end }
             if last < gaps.count, gaps[last].start < word.end, gaps[last].start > words[i].start {
                 words[i].end = gaps[last].start

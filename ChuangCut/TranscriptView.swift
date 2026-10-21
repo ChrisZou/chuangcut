@@ -186,7 +186,7 @@ final class TranscriptPanel: ColorView {
 }
 final class TranscriptTextView: NSTextView {
     var revision = -1
-    var onSeek: ((Double) -> Void)?
+    var onSeek: ((Word) -> Void)?
     var onToggle: ((UUID) -> Void)?
     var onManual: (([Word]) -> Void)?
     private var wordRanges: [(Word, NSRange)] = []
@@ -335,8 +335,10 @@ final class TranscriptTextView: NSTextView {
         guard glyph < layoutManager.numberOfGlyphs else { return nil }
         return layoutManager.characterIndexForGlyph(at: glyph)
     }
-    override func mouseUp(with event: NSEvent) {
-        super.mouseUp(with: event)
+    override func mouseDown(with event: NSEvent) {
+        // NSTextView tracks the whole click or drag here and never calls mouseUp(with:); a plain click
+        // leaves the selection empty.
+        super.mouseDown(with: event)
         guard selectedRange().length == 0, let index = index(at: event), index < (textStorage?.length ?? 0) else {
             return
         }
@@ -348,7 +350,7 @@ final class TranscriptTextView: NSTextView {
             onToggle?(id)
             return
         }
-        if let word = wordRanges.first(where: { NSLocationInRange(index, $0.1) })?.0 { onSeek?(word.start) }
+        if let word = wordRanges.first(where: { NSLocationInRange(index, $0.1) })?.0 { onSeek?(word) }
     }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 51 || event.keyCode == 117 {

@@ -55,6 +55,50 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(speechCuts(["第一个优点是", "第一个优点是速度快。"], gap: 1), ["retake:第一个优点是"])
     }
 
+    func keptText(_ sentences: [String], gap: Double = 0.3) -> String {
+        let input = words(sentences, gap: gap)
+        let duration = input.last!.end + 0.3
+        let mapper = TimelineMapper(duration: duration, cuts: CutDetector().detect(words: input, duration: duration))
+        return input.filter { !mapper.removes($0) }.map(\.text).joined()
+    }
+    func testOnlyTheLastTakeIsKept() {
+        // Several attempts at a two-sentence opening, restarted from different points.
+        XCTAssertEqual(
+            keptText(
+                [
+                    "我们都知道AI已经", "我们都知道AI", "我们都知道AI已经造成了很多人的失业了，", "所以", "所以为了报仇，",
+                    "我们决定以其人之道还治其人之身。", "我们都知道AI已经造成了很多人的失业了，", "所以为了",
+                    "我们都知道AI已经造成了很多人的失业了，", "所以为了报仇，", "我们决定以其人之道还治其人之身。",
+                ], gap: 0.8),
+            "我们都知道AI已经造成了很多人的失业了，所以为了报仇，我们决定以其人之道还治其人之身。")
+        // A take split by a pause is cut whole, and a slightly reworded later take still counts.
+        XCTAssertEqual(
+            keptText(["看过几", "千份简历的经验，", "全部融入在这个工作台中了。", "看过几千份简历的经验，", "全部融入到了这个工作台中。"], gap: 0.8),
+            "看过几千份简历的经验，全部融入到了这个工作台中。")
+        XCTAssertEqual(
+            keptText(["相信这个视频对你一定有巨大的帮助。", "如果你正在找工作，", "相信这个视频一定对你有巨大的帮助。"]),
+            "如果你正在找工作，相信这个视频一定对你有巨大的帮助。")
+    }
+    func testDistinctSentencesAreNotRetakes() {
+        XCTAssertEqual(speechCuts(["我们先打开设置页面，", "然后点击模型列表。", "我们再看看价格怎么样。"]), [])
+        XCTAssertEqual(speechCuts(["所以，", "我们决定自己做一个。", "所以这个工具就诞生了。"]), [])
+        // The same sentence a minute later is new content, not a retake.
+        XCTAssertEqual(speechCuts(["这个功能非常好用。", "这个功能非常好用。"], gap: 50), [])
+    }
+    func testRetakeCutStopsAtTheNextTakesFirstWord() {
+        // Whisper put 里 of 里面 before the pause the speaker made ahead of it.
+        var input = words(["都用AI帮你做"])
+        input.append(Word(text: "里", start: 1.4, end: 1.5))
+        input += words(["面包含了大量细节"]).map { Word(text: $0.text, start: $0.start + 2.3, end: $0.end + 2.3) }
+        input += words(["都用AI帮你做了准备"]).map { Word(text: $0.text, start: $0.start + 4.5, end: $0.end + 4.5) }
+        XCTAssertTrue(CutDetector.pauseSplitsWord([input[7]], input[8...]))
+        XCTAssertFalse(CutDetector.pauseSplitsWord(Array(input[...6]), input[7...]))
+        let cuts = CutDetector().detect(
+            words: input, duration: 7, silences: [TimeRange(1.5, 2.3)], sentenceEnds: [input[6].id])
+        let mapper = TimelineMapper(duration: 7, cuts: cuts)
+        XCTAssertEqual(input.filter { !mapper.removes($0) }.map(\.text).joined(), "里面包含了大量细节都用AI帮你做了准备")
+    }
+
     func testRotatedPhoneVideoUsesDisplaySize() throws {
         func info(_ stream: String) throws -> MediaInfo {
             let json =
@@ -70,6 +114,12 @@ final class RobustnessTests: XCTestCase {
     }
 
     /// Whisper reported 今 at 2.72–3.83 although speech resumed at 4.56, and 辑 inside the next pause.
+    func testWordSpanningASilenceMovesToItsLongerSide() {
+        let words = [Word(text: "我", start: 31.88, end: 32.86), Word(text: "们", start: 32.86, end: 33.1)]
+        let aligned = Transcript.align(words, gaps: [TimeRange(31.94, 32.63)])
+        XCTAssertEqual(aligned[0].start, 32.63, accuracy: 1e-9)
+        XCTAssertEqual(aligned[0].end, 32.86, accuracy: 1e-9)
+    }
     func testWordsAreAlignedToAcousticSilence() {
         let segment = Segment(
             start: 2.72, end: 7.22, text: "今天我们剪辑",

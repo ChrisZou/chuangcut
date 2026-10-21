@@ -166,7 +166,17 @@ import SwiftUI
             to: CMTime(seconds: value, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
         playhead = value
     }
-    func seekWord(_ time: Double) {
+    /// Seeks to a transcript word. A removed word has no place in the edit, so it seeks to the edit
+    /// point where its cut begins.
+    func seekWord(_ word: Word) {
+        var time = word.start
+        if mapper.removes(word),
+            let cut = mapper.cutRanges.first(where: {
+                $0.end > word.start && $0.start < max(word.end, word.start + 0.001)
+            })
+        {
+            time = cut.start
+        }
         selectSegment(at: time)
         seek(time)
     }
