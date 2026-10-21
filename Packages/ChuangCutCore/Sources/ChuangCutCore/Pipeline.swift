@@ -97,9 +97,11 @@ public struct Pipeline {
         progress("Detecting cuts", 0.8)
         let silences = try ffmpeg.silence(
             input, threshold: settings.pauseThreshold, duration: media.duration, cancellation: cancellation)
+        let loudness = try ffmpeg.loudness(input, cancellation: cancellation)
         let aligned = transcript.aligned(to: silences)
         let cuts = CutDetector(settings: settings).detect(
-            words: aligned.words, duration: media.duration, silences: silences, sentenceEnds: aligned.sentenceEnds)
+            words: aligned.words, duration: media.duration, silences: silences, sentenceEnds: aligned.sentenceEnds,
+            loudness: loudness)
         let project = Project(source: input, media: media, transcript: aligned, candidates: cuts, silences: silences)
         try Self.save(project)
         progress("Ready", 1)

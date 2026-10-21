@@ -18,8 +18,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(transcript.words.map(\.text).joined(), transcript.segments.map(\.text).joined())
         let cuts = CutDetector().detect(words: transcript.words, duration: 25.19)
         let retake = try XCTUnwrap(cuts.first { $0.kind == .retake })
-        // The first take runs from 4.48 s to 7.16 s and takes in the padding of the pauses around it.
-        XCTAssertEqual(retake.sourceStart, 4.38, accuracy: 0.05)
+        XCTAssertEqual(retake.sourceStart, 4.48, accuracy: 0.05)
+        // The pause padding after the take holds no kept word, so it goes with the take.
         XCTAssertEqual(retake.sourceEnd, 7.26, accuracy: 0.05)
         XCTAssertEqual(cuts.filter { $0.kind == .filler }.count, 2)
         XCTAssertFalse(cuts.contains { $0.kind == .retake && $0.sourceStart > 8 })
@@ -60,8 +60,9 @@ final class CoreTests: XCTestCase {
     func testAcousticPausesAndPadding() {
         var settings = DetectionSettings()
         settings.padding = 0.1
+        let input = words("你好", from: 0.5) + words("大家", from: 3) + words("我们", from: 6) + words("开始", from: 8.5)
         let cuts = CutDetector(settings: settings).detect(
-            words: words("你好"), duration: 10, silences: [TimeRange(1, 2.5), TimeRange(4, 5.3), TimeRange(7, 8)])
+            words: input, duration: 10, silences: [TimeRange(1, 2.5), TimeRange(4, 5.3), TimeRange(7, 8)])
         XCTAssertEqual(cuts.filter { $0.kind == .pause }.count, 3)
         XCTAssertEqual(cuts.first!.sourceStart, 1.1, accuracy: 0.001)
         XCTAssertEqual(cuts.first!.sourceEnd, 2.4, accuracy: 0.001)
@@ -152,8 +153,9 @@ final class CoreTests: XCTestCase {
     func testLeadingAndTrailingPauses() {
         let cuts = CutDetector().detect(words: words("你好。", from: 2), duration: 5)
         XCTAssertEqual(cuts.filter { $0.kind == .pause }.count, 2)
-        XCTAssertEqual(cuts.first!.sourceStart, 0.1, accuracy: 0.001)
-        XCTAssertEqual(cuts.last!.sourceEnd, 4.9, accuracy: 0.001)
+        // The padding at either end of the video holds no word, so the video starts and ends with speech.
+        XCTAssertEqual(cuts.first!.sourceStart, 0, accuracy: 0.001)
+        XCTAssertEqual(cuts.last!.sourceEnd, 5, accuracy: 0.001)
     }
     func testNativeSubtitleSequence() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

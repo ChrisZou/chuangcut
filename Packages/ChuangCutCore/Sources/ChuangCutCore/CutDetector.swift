@@ -31,7 +31,8 @@ public struct CutDetector {
     /// `sentenceEnds` holds the last word of each Whisper segment; segments are sentence-like even
     /// when Whisper emits no sentence-final punctuation.
     public func detect(
-        words: [Word], duration: Double, silences: [TimeRange] = [], sentenceEnds: Set<UUID> = []
+        words: [Word], duration: Double, silences: [TimeRange] = [], sentenceEnds: Set<UUID> = [],
+        loudness: Loudness? = nil
     ) -> [CutCandidate] {
         guard !words.isEmpty else { return [] }
         var candidates: [CutCandidate] = []
@@ -100,24 +101,63 @@ public struct CutDetector {
             }
         }
         candidates = candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
-        bridgeWordlessGaps(&candidates, spoken: spoken)
-        return candidates
+        fitKeptStretches(&candidates, spoken: spoken, duration: duration, loudness: loudness)
+        return candidates.filter { $0.sourceEnd > $0.sourceStart }
     }
-    /// Pause padding and the space between two removed takes leave slivers of breath and silence when the
-    /// speech on both sides is cut. Close each gap of up to two seconds that holds no kept word and borders a
-    /// speech cut; sound between two pauses with no words in it may be something the ASR didn't write down.
-    private func bridgeWordlessGaps(_ candidates: inout [CutCandidate], spoken: [Word]) {
+    /// Shapes each stretch left between cuts around its speech. A stretch with no kept word (a breath, a burp,
+    /// the padding before the first word) is cut. With loudness, the others start `leadIn` before their first
+    /// word becomes audible, so picture and voice arrive together, and end `tail` after their last word,
+    /// instead of wherever a silence or a removed take happened to stop.
+    private func fitKeptStretches(
+        _ candidates: inout [CutCandidate], spoken: [Word], duration: Double, loudness: Loudness?
+    ) {
         let removed = TimelineMapper.merge(candidates.map(\.range))
-        let kept = spoken.map { ($0.start + $0.end) / 2 }.filter { mid in !removed.contains { $0.contains(mid) } }
-        for (left, right) in zip(removed, removed.dropFirst()) where right.start - left.end <= 2 {
-            guard !kept.contains(where: { $0 > left.end && $0 < right.start }) else { continue }
-            // Stretch the speech cut, so pause cuts keep their measured length.
-            if let i = candidates.firstIndex(where: { $0.kind != .pause && abs($0.sourceEnd - left.end) < 1e-9 }) {
-                candidates[i].sourceEnd = right.start
-            } else if let i = candidates.firstIndex(where: {
-                $0.kind != .pause && abs($0.sourceStart - right.start) < 1e-9
-            }) {
-                candidates[i].sourceStart = left.end
+        var stretches: [TimeRange] = []
+        var cursor = 0.0
+        for range in removed {
+            if range.start > cursor { stretches.append(TimeRange(cursor, range.start)) }
+            cursor = max(cursor, range.end)
+        }
+        if cursor < duration { stretches.append(TimeRange(cursor, duration)) }
+        let mids = spoken.map { ($0.start + $0.end) / 2 }
+        for stretch in stretches {
+            let before = candidates.indices.filter { abs(candidates[$0].sourceEnd - stretch.start) < 1e-6 }
+            let after = candidates.indices.filter { abs(candidates[$0].sourceStart - stretch.end) < 1e-6 }
+            // Words are in time order, so the stretch's words are one run.
+            let lower = TimelineMapper.firstIndex(count: mids.count) { mids[$0] >= stretch.start }
+            let upper = TimelineMapper.firstIndex(count: mids.count) { mids[$0] >= stretch.end }
+            guard lower < upper else {
+                if !before.isEmpty {
+                    for i in before { candidates[i].sourceEnd = stretch.end }
+                } else if !after.isEmpty {
+                    for i in after { candidates[i].sourceStart = stretch.start }
+                }
+                continue
+            }
+            guard let loudness else { continue }
+            let (firstIndex, lastIndex) = (lower, upper - 1)
+            let first = spoken[firstIndex]
+            let last = spoken[lastIndex]
+            if !before.isEmpty {
+                // Never reach back into the removed word before the stretch, and keep the first word's
+                // midpoint, which decides whether the word counts as kept.
+                let lower = max(
+                    firstIndex > 0 ? spoken[firstIndex - 1].end : 0, before.map { candidates[$0].sourceStart }.max()!)
+                if let onset = loudness.onset(from: max(lower, first.start - 0.25), to: first.end + 0.1) {
+                    let start = min(mids[firstIndex], max(lower, onset - settings.leadIn))
+                    for i in before { candidates[i].sourceEnd = start }
+                }
+            }
+            if !after.isEmpty {
+                let upper = min(
+                    lastIndex + 1 < spoken.count ? spoken[lastIndex + 1].start : duration,
+                    after.map { candidates[$0].sourceEnd }.min()!)
+                // Stop short of the next word: its timestamp can trail its first audible frame.
+                if let offset = loudness.offset(from: last.start, to: max(last.end, min(upper - 0.1, last.end + 0.35)))
+                {
+                    let end = max(mids[lastIndex], min(upper, offset + settings.tail))
+                    for i in after { candidates[i].sourceStart = end }
+                }
             }
         }
     }
@@ -274,7 +314,8 @@ public struct CutDetector {
                 // A short fragment (所以, 我把) only counts when it is restarted almost at once.
                 guard clause - last <= 3, clauses[clause].first!.start - end <= 10 else { break }
                 if prefix.starts(with: a), accepted(prefix.prefix(a.count)) { return clause }
-            } else if Self.coverage(a, in: Array(prefix), anchored: true).score >= threshold,
+            } else if Self.coverage(a, in: Array(prefix), anchored: true).score >= threshold
+                || Self.isRewording(a, of: prefix),
                 accepted(prefix.prefix(a.count))
             {
                 return clause
@@ -286,6 +327,19 @@ public struct CutDetector {
         let start = offsets[last + 1] + match.start
         guard match.score >= threshold, accepted(text[start..<min(text.count, start + a.count)]) else { return nil }
         return ((last + 1)..<windowEnd).last { offsets[$0] <= start }
+    }
+    /// A later take that opens the same way and says the same thing at more length: 里面有大量，你意思不 →
+    /// 里面包含了大量你意想不到的. Words the later take adds cost nothing; three quarters of the earlier take's
+    /// characters must appear in it in order.
+    static func isRewording(_ a: [Unicode.Scalar], of b: ArraySlice<Unicode.Scalar>) -> Bool {
+        guard a.count >= 6, b.starts(with: a.prefix(2)) else { return false }
+        var previous = [Int](repeating: 0, count: b.count + 1)
+        for x in a {
+            var row = [0]
+            for (j, y) in b.enumerated() { row.append(x == y ? previous[j] + 1 : max(previous[j + 1], row[j])) }
+            previous = row
+        }
+        return Double(previous[b.count]) >= 0.75 * Double(a.count)
     }
     /// 1 minus the edit distance between `a` and its closest substring of `b` (a prefix of `b` when
     /// `anchored`), relative to `a`'s length, and where that substring starts in `b`.

@@ -23,7 +23,7 @@ import SwiftUI
     var peaks: [Float] = []
     var playhead = 0.0
     var isPlaying = false
-    var previewCuts = true
+    var previewCuts = true { didSet { if previewCuts != oldValue { rebuildPlayback() } } }
     var stage = ""
     var progress = 0.0
     var error: String?
@@ -66,8 +66,11 @@ import SwiftUI
         return stage
     }
     @ObservationIgnored private var observer: Any?
-    @ObservationIgnored private var boundaryObserver: Any?
-    @ObservationIgnored private var seeking = false
+    /// With Preview cuts on, the player plays a composition of the kept ranges so joins are seamless;
+    /// seeking past each cut in the source stalled playback for over 100 ms at every join. This is the
+    /// mapper the current composition was built from, nil while the player plays the source itself.
+    @ObservationIgnored private var playbackMapper: TimelineMapper?
+    @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var cancellation = CancellationToken()
     @ObservationIgnored private var started = false
     /// Serial, so saves land in edit order without blocking the main thread.
@@ -125,45 +128,65 @@ import SwiftUI
     private func tick(_ time: Double) {
         guard time.isFinite else { return }
         if !playbackRequested && player.rate != 0 { player.pause() }
-        playhead = time
+        playhead = playbackMapper?.cutToSource(time) ?? time
         // Every assignment notifies observers, even of an equal value.
         let playing = playbackRequested && player.rate != 0
         if isPlaying != playing { isPlaying = playing }
-        skipCut(at: time)
     }
-    private func skipCut(at time: Double) {
-        // A seek to cut.end can land microseconds early after CMTime rounding; treating that as still
-        // inside the cut would seek to the same point forever and freeze playback.
-        guard previewCuts, player.rate > 0, !seeking,
-            let cut = mapper.cutRanges.first(where: { $0.contains(time) && $0.end - time > 0.001 })
-        else { return }
-        seeking = true
+    /// Plays the edit as one continuous composition while Preview cuts is on, the source otherwise.
+    private func rebuildPlayback() {
+        playbackTask?.cancel()
+        guard let project else { return }
+        let mapper = mapper
+        guard previewCuts, !mapper.cutRanges.isEmpty else {
+            if playbackMapper != nil { setPlaybackItem(AVPlayerItem(url: project.source), mapper: nil) }
+            return
+        }
+        playbackTask = Task { [weak self] in
+            guard let item = await Self.composition(of: project.source, keeping: mapper.keptRanges),
+                !Task.isCancelled
+            else { return }
+            self?.setPlaybackItem(item, mapper: mapper)
+        }
+    }
+    private func setPlaybackItem(_ item: AVPlayerItem, mapper: TimelineMapper?) {
+        let time = playhead
+        playbackMapper = mapper
+        player.replaceCurrentItem(with: item)
         player.seek(
-            to: CMTime(seconds: cut.end, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero
-        ) { [weak self] _ in
-            Task { @MainActor in self?.seeking = false }
-        }
+            to: CMTime(seconds: mapper?.sourceToCut(time) ?? time, preferredTimescale: 60000),
+            toleranceBefore: .zero, toleranceAfter: .zero)
+        if playbackRequested { player.play() }
     }
-    private func rebuildBoundaries() {
-        if let boundaryObserver {
-            player.removeTimeObserver(boundaryObserver)
-            self.boundaryObserver = nil
+    private static func composition(of source: URL, keeping ranges: [TimeRange]) async -> AVPlayerItem? {
+        let asset = AVURLAsset(url: source)
+        let composition = AVMutableComposition()
+        var tracks: [(AVAssetTrack, AVMutableCompositionTrack)] = []
+        for type in [AVMediaType.video, .audio] {
+            guard let track = try? await asset.loadTracks(withMediaType: type).first,
+                let copy = composition.addMutableTrack(
+                    withMediaType: type, preferredTrackID: kCMPersistentTrackID_Invalid)
+            else { continue }
+            if type == .video { copy.preferredTransform = (try? await track.load(.preferredTransform)) ?? .identity }
+            tracks.append((track, copy))
         }
-        let times = mapper.cutRanges.map { NSValue(time: CMTime(seconds: $0.start, preferredTimescale: 60000)) }
-        if !times.isEmpty {
-            boundaryObserver = player.addBoundaryTimeObserver(forTimes: times, queue: .main) { [weak self] in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.skipCut(at: self.player.currentTime().seconds + 0.002)
-                }
-            }
+        guard !tracks.isEmpty else { return nil }
+        var cursor = CMTime.zero
+        for range in ranges {
+            let span = CMTimeRange(
+                start: CMTime(seconds: range.start, preferredTimescale: 60000),
+                duration: CMTime(seconds: range.duration, preferredTimescale: 60000))
+            for (track, copy) in tracks { try? copy.insertTimeRange(span, of: track, at: cursor) }
+            cursor = cursor + span.duration
         }
+        return AVPlayerItem(asset: composition)
     }
     func seek(_ time: Double) {
         guard time.isFinite else { return }
         let value = max(0, min(project?.media.duration ?? 0, time))
         player.seek(
-            to: CMTime(seconds: value, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+            to: CMTime(seconds: playbackMapper?.sourceToCut(value) ?? value, preferredTimescale: 60000),
+            toleranceBefore: .zero, toleranceAfter: .zero)
         playhead = value
     }
     /// Seeks to a transcript word. A removed word has no place in the edit, so it seeks to the edit
@@ -201,7 +224,8 @@ import SwiftUI
         if isPlaying {
             pause()
         } else {
-            if playhead >= (project?.media.duration ?? 0) - 0.05 { seek(0) }
+            let end = playbackMapper?.keptRanges.last?.end ?? project?.media.duration ?? 0
+            if playhead >= end - 0.05 { seek(0) }
             playbackRequested = true
             player.play()
             isPlaying = true
@@ -248,11 +272,12 @@ import SwiftUI
                 peaks = result.1
                 revision += 1
                 playhead = 0
+                playbackMapper = nil
                 player.replaceCurrentItem(with: AVPlayerItem(url: url))
                 pause()
                 seek(0)
                 thumbnails.load(url)
-                rebuildBoundaries()
+                rebuildPlayback()
                 stage = ""
                 if autoTranscribe { transcribe() } else { applyLaunchHooks() }
             } catch { finish(error) }
@@ -320,15 +345,17 @@ import SwiftUI
         Task {
             do {
                 let result = try await Task.detached {
-                    let silences = try FFmpegRunner(tools: tools).silence(
+                    let runner = FFmpegRunner(tools: tools)
+                    let silences = try runner.silence(
                         project.source, threshold: settings.pauseThreshold, duration: project.media.duration,
                         cancellation: token)
+                    let loudness = try runner.loudness(project.source, cancellation: token)
                     let aligned = transcript.aligned(to: silences)
                     return (
                         silences,
                         CutDetector(settings: settings).detect(
                             words: aligned.words, duration: project.media.duration, silences: silences,
-                            sentenceEnds: aligned.sentenceEnds),
+                            sentenceEnds: aligned.sentenceEnds, loudness: loudness),
                         aligned
                     )
                 }.value
@@ -430,7 +457,7 @@ import SwiftUI
     }
     private func changed() {
         revision += 1
-        rebuildBoundaries()
+        rebuildPlayback()
         guard let project else { return }
         // Encoding a long transcript takes tens of milliseconds.
         saveQueue.async { [weak self] in

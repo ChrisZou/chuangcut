@@ -162,3 +162,12 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - With the new restart rules C5245 keeps 35.9 s from either of two Doubao runs, reading as one pass of the script; the only leftover is the reworded 「里面有大量，你意思不，」. Word-less slivers between cuts had added 6.5 s before bridging.
 - `swift test`: 45 tests, 0 failures (Doubao parsing, restarts within a clause, words glued to a restart, slivers, 一步一步). `Scripts/verify_fixture.py` passed base and trimmed runs with Whisper; with Doubao the fixture gives the same pauses, retake and fillers, and 一聊 instead of Whisper's 医疗. The 28.5-minute file: 2.7 s detection from cache (Whisper), 17 s transcription plus detection (Doubao).
 - In the app: Settings › Transcription shows the engine picker, key and hotword table; Transcribe on C5245 finished in 6.6 s, and Detect gave 00:35.9 edited.
+
+## Tighter clips and a seamless preview
+
+- Kept clips used to start wherever a cut ended: 0.1 s before a silence ended, or at the end of a removed word, so 0.4–0.56 s of room tone could precede the first word. They now follow a 10 ms loudness envelope: on C5245 every clip starts 0.03–0.04 s before its first word crosses -45 dB and ends 0.06–0.07 s after its last word does. Clips with no words (0.1 s at either end, a 0.25 s burp between two pauses) are cut.
+- The reworded 「里面有大量，你意思不，」 is now an earlier take. C5245 keeps 32.5 s in seven clips, the same for both Doubao transcripts. The fixture keeps 16.006 s; `Scripts/verify_fixture.py` passed base and trimmed runs. Detection on the 28.5-minute file takes 3.8 s in a debug build (loudness via vDSP; decoding the audio is 0.7 s of it).
+- The transcript's text view had no maxSize, so it never grew and could not scroll; it now scrolls and follows playback.
+- Preview: exact seeks on the 4K HEVC source stalled 121–141 ms at each join (measured with a standalone AVPlayer). With the composition, playing 12 s across two joins kept wall-clock minus edited time constant at 0.6–0.7 s (the start-up delay). Toggling Preview off and on, toggling a cut and undoing it kept the source position.
+- `swift test`: 47 tests, 0 failures.
+

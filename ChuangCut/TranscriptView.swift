@@ -114,6 +114,9 @@ final class TranscriptPanel: ColorView {
         text.drawsBackground = false
         text.isVerticallyResizable = true
         text.isHorizontallyResizable = false
+        // Without an unbounded maxSize the view never grows past its first frame and the transcript can't scroll.
+        text.minSize = .zero
+        text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         text.autoresizingMask = [.width]
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
@@ -163,7 +166,7 @@ final class TranscriptPanel: ColorView {
             Observer { [weak self] in self?.updateContent() },
             Observer { [weak self] in
                 guard let self else { return }
-                text.highlight(time: model.playhead, clip: model.selectedRange)
+                text.highlight(time: model.playhead, clip: model.selectedRange, follow: model.isPlaying)
             },
         ]
     }
@@ -195,6 +198,8 @@ final class TranscriptTextView: NSTextView {
     private var selectedClip: TimeRange?
     private var highlightTime = 0.0
     private var highlightClip: TimeRange?
+    /// Following playback pauses for a few seconds after the user scrolls the transcript.
+    private var userScrolled = Date.distantPast
     private var contextCut: UUID?
     private var rebuildPending = false
     override func draw(_ dirtyRect: NSRect) {
@@ -305,11 +310,12 @@ final class TranscriptTextView: NSTextView {
             if self.revision != model.revision { self.rebuild(project: model.project, revision: model.revision) }
         }
     }
-    func highlight(time: Double, clip: TimeRange?) {
+    func highlight(time: Double, clip: TimeRange?, follow: Bool = false) {
         highlightTime = time
         highlightClip = clip
         let next = wordRanges.first { time >= $0.0.start && time < $0.0.end && !$0.0.isPunctuation }?.1
         guard next != active || clip != selectedClip else { return }
+        if follow, let next, next != active, Date().timeIntervalSince(userScrolled) > 3 { reveal(next) }
         active = next
         selectedClip = clip
         if let layout = layoutManager as? RoundedLayoutManager {
@@ -326,6 +332,20 @@ final class TranscriptTextView: NSTextView {
             layout.clipSelection = merged
         }
         needsDisplay = true
+    }
+    /// Keeps the spoken word on screen during playback, a third of the way down so the next lines show.
+    private func reveal(_ range: NSRange) {
+        guard let layoutManager, let textContainer else { return }
+        let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        rect.origin.y += textContainerOrigin.y
+        let visible = visibleRect
+        guard rect.minY < visible.minY + 20 || rect.maxY > visible.maxY - 20 else { return }
+        scroll(NSPoint(x: 0, y: max(0, min(rect.minY - visible.height / 3, bounds.height - visible.height))))
+    }
+    override func scrollWheel(with event: NSEvent) {
+        userScrolled = Date()
+        super.scrollWheel(with: event)
     }
     private func index(at event: NSEvent) -> Int? {
         guard let layoutManager, let textContainer, !string.isEmpty else { return nil }

@@ -115,6 +115,27 @@ final class RobustnessTests: XCTestCase {
         // A connective added in the final take is kept.
         XCTAssertEqual(keptText(["我们都知道AI很厉害。", "所以我们都知道AI很厉害。"], gap: 0.8), "所以我们都知道AI很厉害。")
     }
+    func testRewordedTakeIsAnEarlierTake() {
+        XCTAssertEqual(
+            keptText(["里面有大量，", "你意思不，", "里面包含了大量你意想不到的细节。"], gap: 0.8), "里面包含了大量你意想不到的细节。")
+        // Sentences that only share an opening and a few words stay.
+        XCTAssertEqual(speechCuts(["我们先打开设置页面，", "我们再打开模型页面。"]), [])
+    }
+    func testKeptClipsStartAsSpeechBeginsAndEndAsItFades() {
+        // Room tone at -70 dB; one word is audible from 2.00 s (soft attack from 1.97 s) to 2.50 s, and the ASR
+        // puts it at 2.05–2.45. Pauses on both sides are cut.
+        var levels = [Float](repeating: -70, count: 400)
+        for i in 197..<200 { levels[i] = -55 }
+        for i in 200..<250 { levels[i] = -20 }
+        let word = Word(text: "好", start: 2.05, end: 2.45)
+        let cuts = CutDetector().detect(
+            words: [word], duration: 4, silences: [TimeRange(0, 1.97), TimeRange(2.5, 4)],
+            loudness: Loudness(levels: levels))
+        let kept = TimelineMapper(duration: 4, cuts: cuts).keptRanges
+        XCTAssertEqual(kept.count, 1)
+        XCTAssertEqual(kept[0].start, 1.94, accuracy: 0.001)
+        XCTAssertEqual(kept[0].end, 2.56, accuracy: 0.001)
+    }
     func testNoWordlessSliverIsLeftBetweenCuts() {
         // A breath between the first take and the pause has no words; it goes with the take.
         let input =
@@ -124,6 +145,10 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(ranges.count, 1)
         XCTAssertEqual(ranges[0].start, 0, accuracy: 0.001)
         XCTAssertEqual(ranges[0].end, 2.9, accuracy: 0.001)
+        // A burp between two pauses has no words either.
+        let burp = CutDetector().detect(
+            words: words(["好的"]), duration: 6, silences: [TimeRange(1, 2), TimeRange(2.3, 6)])
+        XCTAssertEqual(TimelineMapper(duration: 6, cuts: burp).keptRanges.count, 1)
     }
 
     func testRotatedPhoneVideoUsesDisplaySize() throws {

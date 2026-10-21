@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 public enum VideoQuality: String, CaseIterable, Codable, Sendable { case compact, balanced, high, software }
@@ -113,6 +114,35 @@ public struct FFmpegRunner {
             }
             if count % strideSize != 0 { peaks.append(peak) }
             return peaks
+        }
+    }
+    /// RMS level per 10 ms frame. Decoding the audio takes under a second even for half an hour.
+    public func loudness(_ input: URL, cancellation: CancellationToken) throws -> Loudness {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("chuangcut-level-\(UUID()).pcm")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        _ = try ProcessRunner.run(
+            tools.ffmpeg,
+            ["-y", "-v", "error", "-i", input.path, "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", temp.path],
+            cancellation: cancellation)
+        let data = try Data(contentsOf: temp, options: .mappedIfSafe)
+        let size = Int(8000 * Loudness.frame)
+        return data.withUnsafeBytes { raw in
+            let samples = raw.bindMemory(to: Int16.self)
+            var values = [Float](repeating: 0, count: samples.count)
+            vDSP_vflt16(samples.baseAddress!, 1, &values, 1, vDSP_Length(samples.count))
+            var levels: [Float] = []
+            levels.reserveCapacity(samples.count / size + 1)
+            values.withUnsafeBufferPointer { buffer in
+                var start = 0
+                while start < buffer.count {
+                    let count = min(size, buffer.count - start)
+                    var meanSquare: Float = 0
+                    vDSP_measqv(buffer.baseAddress! + start, 1, &meanSquare, vDSP_Length(count))
+                    levels.append(10 * log10(meanSquare / (32768 * 32768) + 1e-10))
+                    start += count
+                }
+            }
+            return Loudness(levels: levels)
         }
     }
     /// One encoding pass: trim/atrim, concatenate, then optionally overlay native subtitle PNGs.

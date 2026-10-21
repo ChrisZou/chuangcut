@@ -139,10 +139,22 @@ struct DetectionSettingsView: View {
                 Slider(value: $settings.pause, in: 0.2...2, step: 0.05)
                 Text(String(format: "%.2f s", settings.pause)).monospacedDigit().frame(width: 55)
             }
-            HStack {
-                Text("Keep padding")
-                Slider(value: $settings.padding, in: 0...0.25, step: 0.01)
-                Text(String(format: "%.2f s", settings.padding)).monospacedDigit().frame(width: 55)
+            Section {
+                HStack {
+                    Text("Before speech")
+                    Slider(value: $settings.leadIn, in: 0...0.2, step: 0.01)
+                    Text(String(format: "%.2f s", settings.leadIn)).monospacedDigit().frame(width: 55)
+                }
+                HStack {
+                    Text("After speech")
+                    Slider(value: $settings.tail, in: 0...0.3, step: 0.01)
+                    Text(String(format: "%.2f s", settings.tail)).monospacedDigit().frame(width: 55)
+                }
+            } footer: {
+                Text(
+                    "Each kept clip starts this long before its first word is heard and ends this long after its last word fades."
+                )
+                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             TextField("Fillers", text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
         }.formStyle(.grouped).frame(width: 610, height: 520)

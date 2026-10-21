@@ -95,7 +95,12 @@ public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {
 }
 public struct DetectionSettings: Codable, Sendable {
     public var pauseThreshold: Double = 0.6
+    /// Silence kept on each side of a pause cut when no loudness is available.
     public var padding: Double = 0.10
+    /// How much of the room's sound a kept stretch keeps before its first word becomes audible, and after its
+    /// last word stops being clearly audible.
+    public var leadIn: Double = 0.03
+    public var tail: Double = 0.06
     public var fillers: [String] = ["嗯", "啊", "呃", "额", "那个", "就是说", "然后呢", "这个", "um", "uh", "er", "ah"]
     public init() {}
 }

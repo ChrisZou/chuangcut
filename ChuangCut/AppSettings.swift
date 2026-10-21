@@ -15,7 +15,8 @@ enum Transcriber: String, CaseIterable {
     @Published var whisperPath: String { didSet { defaults.set(whisperPath, forKey: "whisperPath") } }
     @Published var language: String { didSet { defaults.set(language, forKey: "language") } }
     @Published var pause: Double { didSet { defaults.set(pause, forKey: "pause") } }
-    @Published var padding: Double { didSet { defaults.set(padding, forKey: "padding") } }
+    @Published var leadIn: Double { didSet { defaults.set(leadIn, forKey: "leadIn") } }
+    @Published var tail: Double { didSet { defaults.set(tail, forKey: "tail") } }
     @Published var fillerText: String { didSet { defaults.set(fillerText, forKey: "fillers") } }
     @Published var style: SubtitleStyle {
         didSet { if let data = try? JSONEncoder().encode(style) { defaults.set(data, forKey: "subtitleStyle") } }
@@ -34,7 +35,8 @@ enum Transcriber: String, CaseIterable {
         whisperPath = d.string(forKey: "whisperPath") ?? ToolPaths.resolve("whisper-cli")
         language = d.string(forKey: "language") ?? "zh"
         pause = d.object(forKey: "pause") as? Double ?? 0.6
-        padding = d.object(forKey: "padding") as? Double ?? 0.1
+        leadIn = d.object(forKey: "leadIn") as? Double ?? DetectionSettings().leadIn
+        tail = d.object(forKey: "tail") as? Double ?? DetectionSettings().tail
         fillerText = d.string(forKey: "fillers") ?? DetectionSettings().fillers.joined(separator: ", ")
         style =
             d.data(forKey: "subtitleStyle").flatMap { try? JSONDecoder().decode(SubtitleStyle.self, from: $0) }
@@ -66,7 +68,8 @@ enum Transcriber: String, CaseIterable {
     var detection: DetectionSettings {
         var value = DetectionSettings()
         value.pauseThreshold = max(0.1, pause)
-        value.padding = min(max(0, padding), value.pauseThreshold / 2)
+        value.leadIn = max(0, leadIn)
+        value.tail = max(0, tail)
         value.fillers = fillerText.components(separatedBy: CharacterSet(charactersIn: ",，\n")).map {
             $0.trimmingCharacters(in: .whitespaces)
         }.filter { !$0.isEmpty }
