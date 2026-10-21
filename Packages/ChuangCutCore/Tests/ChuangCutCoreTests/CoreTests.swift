@@ -45,6 +45,17 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(transcript.words[8].start, 6.77, accuracy: 0.001)
         XCTAssertEqual(transcript.words[8].end, 6.77, accuracy: 0.001)
     }
+    func testSubtitleSizesFollowTheFrame() {
+        let style = SubtitleStyle()
+        XCTAssertEqual(style.scaled(width: 1920, height: 1080).fontSize, style.fontSize)
+        XCTAssertEqual(style.scaled(width: 3840, height: 2160).fontSize, style.fontSize * 2)
+        XCTAssertEqual(style.scaled(width: 3840, height: 2160).bottomMargin, style.bottomMargin * 2)
+        // Portrait video scales by its width, the shorter side.
+        XCTAssertEqual(style.scaled(width: 1080, height: 1920).fontSize, style.fontSize)
+        XCTAssertEqual(style.scaled(width: 1280, height: 720).outline, style.outline * 720 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(FFmpegRunner.subtitleLanguage("zh"), "chi")
+        XCTAssertEqual(FFmpegRunner.subtitleLanguage("auto"), "und")
+    }
     func testFillerContextAndFalseStart() {
         let input = words("那个视频很好。这个软件很好。嗯，那个，今天我们来聊。今天我们来聊视频剪辑。")
         let cuts = CutDetector().detect(words: input, duration: 20)

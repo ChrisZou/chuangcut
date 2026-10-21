@@ -132,6 +132,18 @@ public struct SubtitleStyle: Codable, Equatable, Sendable {
             try c.decodeIfPresent(Bool.self, forKey: .replaceInnerPunctuationWithSpaces) ?? true
     }
 }
+extension SubtitleStyle {
+    /// Font size, outline and margin are pixels on a 1080-line frame. Scaling by the shorter side keeps a
+    /// 4K or portrait video's subtitles the same share of the picture.
+    public func scaled(width: Double, height: Double) -> SubtitleStyle {
+        let factor = max(1, min(width, height)) / 1080
+        var style = self
+        style.fontSize *= factor
+        style.outline *= factor
+        style.bottomMargin *= factor
+        return style
+    }
+}
 public struct MediaInfo: Codable, Sendable {
     public var duration: Double
     public var width: Int

@@ -5,6 +5,8 @@ public enum VideoQuality: String, CaseIterable, Codable, Sendable { case compact
 public struct ExportOptions: Sendable {
     public var quality: VideoQuality = .balanced
     public var includeSRT = true
+    /// A soft subtitle track (mov_text) inside the MP4, which players can show or hide.
+    public var subtitleTrack = true
     public var burnSubtitles = false
     public var style = SubtitleStyle()
     public init() {}
@@ -145,6 +147,12 @@ public struct FFmpegRunner {
             return Loudness(levels: levels)
         }
     }
+    /// ISO 639-2 code for the MP4 subtitle track, so players label it.
+    static func subtitleLanguage(_ code: String?) -> String {
+        [
+            "zh": "chi", "en": "eng", "ja": "jpn", "ko": "kor", "fr": "fre", "de": "ger", "es": "spa",
+        ][code ?? ""] ?? "und"
+    }
     /// One encoding pass: trim/atrim, concatenate, then optionally overlay native subtitle PNGs.
     public func export(
         project: Project, to output: URL, options: ExportOptions, cancellation: CancellationToken,
@@ -179,6 +187,13 @@ public struct FFmpegRunner {
         }
         if !project.media.hasAudio { args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"] }
         let audioInput = project.media.hasAudio ? "0:a:0" : (options.burnSubtitles ? "2:a:0" : "1:a:0")
+        let subtitleInput = 1 + (options.burnSubtitles ? 1 : 0) + (project.media.hasAudio ? 0 : 1)
+        let subtitleTrack = options.subtitleTrack && !cues.isEmpty
+        if subtitleTrack {
+            let srt = staging.appendingPathComponent("track.srt")
+            try builder.srt(cues).write(to: srt, atomically: true, encoding: .utf8)
+            args += ["-f", "srt", "-i", srt.path]
+        }
         // Explicit split/asplit makes reuse of the same input deterministic for many kept ranges.
         filters.append("[0:v:0]split=\(ranges.count)" + ranges.indices.map { "[vin\($0)]" }.joined())
         filters.append("[\(audioInput)]asplit=\(ranges.count)" + ranges.indices.map { "[ain\($0)]" }.joined())
@@ -198,6 +213,12 @@ public struct FFmpegRunner {
         let graph = staging.appendingPathComponent("filters.txt")
         try filters.joined(separator: ";\n").write(to: graph, atomically: true, encoding: .utf8)
         args += ["-filter_complex", filters.joined(separator: ";"), "-map", "[vout]", "-map", "[aout]"]
+        if subtitleTrack {
+            args += [
+                "-map", "\(subtitleInput):s:0", "-c:s", "mov_text", "-metadata:s:s:0",
+                "language=\(Self.subtitleLanguage(project.transcript?.language))", "-disposition:s:0", "default",
+            ]
+        }
         if options.quality == .software {
             args += ["-c:v", "libx264", "-crf", "20", "-preset", "medium"]
         } else {

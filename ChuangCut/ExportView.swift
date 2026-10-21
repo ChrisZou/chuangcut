@@ -31,6 +31,8 @@ struct ExportView: View {
                     Text("High · Hardware").tag(VideoQuality.high)
                     Text("H.264 · CRF 20").tag(VideoQuality.software)
                 }
+                Toggle("Subtitle track", isOn: $options.subtitleTrack)
+                    .help("Embed the subtitles as a track players can turn on and off, without burning them in")
                 Toggle("SRT file", isOn: $options.includeSRT)
                 Toggle("Burn subtitles", isOn: $options.burnSubtitles)
                 Button {
@@ -56,7 +58,7 @@ struct ExportView: View {
                     }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
-        }.padding(22).frame(width: 610, height: styleExpanded ? 720 : 520)
+        }.padding(22).frame(width: 610, height: styleExpanded ? 766 : 566)
             .onAppear { options.style = AppSettings.shared.style }
     }
     private func chooseOutput() {

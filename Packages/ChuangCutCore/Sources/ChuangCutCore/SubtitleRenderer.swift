@@ -20,20 +20,31 @@ public enum SubtitleRenderer {
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { throw ChuangCutError.message("Cannot allocate subtitle canvas") }
         context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        draw(text, style: style, in: context, width: Double(width), height: Double(height))
+        guard let image = context.makeImage() else { throw ChuangCutError.message("Cannot render subtitle") }
+        return image
+    }
+    /// Draws a cue the way it is burned in, onto a frame of `width` × `height` whose origin is the context's
+    /// bottom-left corner. The editor's preview layer draws through this too.
+    public static func draw(_ text: String, style: SubtitleStyle, in context: CGContext, width: Double, height: Double)
+    {
+        let style = style.scaled(width: width, height: height)
         let rgb = UInt32(style.colorHex.replacingOccurrences(of: "#", with: ""), radix: 16) ?? 0xFFFFFF
         let color = CGColor(
             red: CGFloat((rgb >> 16) & 255) / 255, green: CGFloat((rgb >> 8) & 255) / 255,
             blue: CGFloat(rgb & 255) / 255, alpha: 1)
-        let font = CTFontCreateWithName(style.fontName as CFString, max(8, style.fontSize), nil)
+        let font = CTFontCreateWithName(style.fontName as CFString, max(4, style.fontSize), nil)
         let attributes: [NSAttributedString.Key: Any] = [
             NSAttributedString.Key(kCTFontAttributeName as String): font,
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
         let lines = text.components(separatedBy: "\n")
+        context.saveGState()
+        defer { context.restoreGState() }
         for (i, text) in lines.enumerated() where !text.isEmpty {
             let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
             let bounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-            let x = (Double(width) - bounds.width) / 2 - bounds.minX
+            let x = (width - bounds.width) / 2 - bounds.minX
             let y = max(0, style.bottomMargin) + Double(lines.count - i - 1) * style.fontSize * 1.35 - bounds.minY
             context.textPosition = CGPoint(x: x, y: y)
             context.setLineJoin(.round)
@@ -46,8 +57,6 @@ public enum SubtitleRenderer {
             context.setTextDrawingMode(.fill)
             CTLineDraw(line, context)
         }
-        guard let image = context.makeImage() else { throw ChuangCutError.message("Cannot render subtitle") }
-        return image
     }
     public static func makeSequence(
         cues: [SubtitleCue], style: SubtitleStyle, width: Int, height: Int, duration: Double, directory: URL,

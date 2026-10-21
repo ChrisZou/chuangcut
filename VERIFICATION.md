@@ -182,3 +182,10 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - Thumbnails now live in a bounded dictionary (300 tiles, oldest out first) generated at 320 × 180 instead of 640 × 360, about a quarter of the memory; failed frames are not re-requested. The export preview's poster is generated separately at 960 × 540.
 - In the app: idle CPU 0.0–0.1%, footprint 95–107 MB; tiles render at both zoom levels and the export sheet shows the poster.
 
+## Subtitle track and preview layer
+
+- Export muxes the SRT as a `mov_text` track (default, language `chi`). The fixture's `cut.mp4` and `cut_burned.mp4` each carry video, audio and one subtitle track, and the extracted track equals `cut.srt`; `Scripts/verify_fixture.py` now asserts both. C5245 exported at 3840 × 2160 with the track; AVFoundation lists it as a legible “Chinese” option, which is what QuickTime Player's Subtitles menu shows.
+- Subtitle sizes now scale with the frame's shorter side over 1080 lines, so C5245's 4K burn-in and previews use 76 px type instead of 38 px; the 720p fixture uses 25 px.
+- In the app: the player draws the cue under the playhead (“我们都知道 AI已经造成” at the start, “所以为了报这一箭之仇” 3.9 s in), and the Export sheet has a Subtitle track switch, on by default.
+- `swift test`: 48 tests, 0 failures.
+

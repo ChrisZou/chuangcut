@@ -34,18 +34,14 @@ struct SubtitlePreview: View {
             transcript: project?.transcript, mapper: model.mapper,
             fillers: project?.candidates.filter { $0.kind == .filler } ?? [], maxCues: 1
         ).first
-        // A proportionally scaled canvas looks identical in a 150-point preview and avoids
-        // rasterizing a full 4K frame on every slider change.
+        // The renderer scales the style with the canvas, so a downscaled canvas looks identical in a
+        // 150-point preview and avoids rasterizing a full 4K frame on every slider change.
         let width = Double(project?.media.width ?? 1280)
         let height = Double(project?.media.height ?? 720)
         let scale = min(1, 1280 / max(width, height))
-        var scaled = style
-        scaled.fontSize *= scale
-        scaled.outline *= scale
-        scaled.bottomMargin *= scale
         guard
             let image = try? SubtitleRenderer.image(
-                text: cue?.text ?? "字幕预览 Subtitle preview", style: scaled, width: Int(width * scale),
+                text: cue?.text ?? "字幕预览 Subtitle preview", style: style, width: Int(width * scale),
                 height: Int(height * scale))
         else {
             overlay = nil

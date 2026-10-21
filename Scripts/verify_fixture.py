@@ -46,10 +46,16 @@ for name in ("cut.mp4", "cut_burned.mp4"):
     duration = float(data["format"]["duration"])
     assert 14 < duration < 17, duration
     assert {"video", "audio"} <= {s["codec_type"] for s in data["streams"]}
+    track = [s for s in data["streams"] if s["codec_type"] == "subtitle"]
+    assert len(track) == 1 and track[0]["codec_name"] == "mov_text", track
+    assert track[0].get("tags", {}).get("language") == "chi"
     subprocess.run([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"], check=True)
-    print(f"{name}: {duration:.3f}s, video + audio, full decode passed")
+    print(f"{name}: {duration:.3f}s, video + audio + subtitle track, full decode passed")
 
 srt = (out / "cut.srt").read_text()
+# The embedded track carries exactly the SRT's cues.
+embedded = subprocess.check_output([ffmpeg, "-v", "error", "-i", str(out / "cut.mp4"), "-map", "0:s:0", "-f", "srt", "-"], text=True)
+assert embedded.strip() == srt.strip().replace("\r", "")
 assert srt.count("今天我们来聊") == 1
 assert "嗯" not in srt and "那个" not in srt
 previous_end = 0

@@ -170,6 +170,7 @@ public struct SubtitleBuilder {
         }.joined(separator: "\n")
     }
     public func ass(_ cues: [SubtitleCue], width: Int, height: Int) -> String {
+        let style = style.scaled(width: Double(width), height: Double(height))
         let hex = style.colorHex.replacingOccurrences(of: "#", with: "")
         let color =
             hex.count == 6
