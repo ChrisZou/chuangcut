@@ -189,3 +189,9 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - In the app: the player draws the cue under the playhead (“我们都知道 AI已经造成” at the start, “所以为了报这一箭之仇” 3.9 s in), and the Export sheet has a Subtitle track switch, on by default.
 - `swift test`: 48 tests, 0 failures.
 
+## Subtitle track in the timeline
+
+- C5245 in the app: the timeline shows 18 cue blocks above the 7 clips, matching `cut.srt`. Clicking the 7th block moves the playhead to 00:09.4, its SRT start, and the player shows “我把我之前在字节面试过四五百号人”.
+- Trimming 1 s off the start of clip 2 re-split the track at once (the cue became “AI来帮助你找到工作的工作台”) and moved later blocks left; `⌘Z` restored 32.5 s.
+- Settings › Subtitles CJK line length 16 → 8 split the blocks into shorter cues immediately; blocks too narrow for text stay plain. Restored to 16.
+- Show removed draws blocks only over kept source. Checked in light and dark appearance.

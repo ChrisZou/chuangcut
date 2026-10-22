@@ -1,5 +1,6 @@
 import AVKit
 import ChuangCutCore
+import Combine
 import SwiftUI
 
 /// Observation tracks each property separately, so the 30 Hz playhead only refreshes the views that
@@ -13,9 +14,12 @@ import SwiftUI
             if project?.transcript != oldValue?.transcript {
                 spokenWordCount = project?.transcript?.words.filter { !$0.isPunctuation }.count
             }
+            rebuildCues()
         }
     }
     private(set) var mapper = TimelineMapper(duration: 0, cuts: [])
+    /// The edit's subtitles in edited time, from the same builder as export, for the player and the timeline.
+    private(set) var cues: [SubtitleCue] = []
     /// Changes only on open/close, so views that only need this are not refreshed on every edit.
     private(set) var hasProject = false
     private(set) var spokenWordCount: Int?
@@ -73,6 +77,9 @@ import SwiftUI
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var cancellation = CancellationToken()
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var cueTask: Task<Void, Never>?
+    @ObservationIgnored private var cuesStale = false
+    @ObservationIgnored private var styleChange: AnyCancellable?
     /// Serial, so saves land in edit order without blocking the main thread.
     private let saveQueue = DispatchQueue(label: "ChuangCut.save", qos: .utility)
     var busy: Bool { !stage.isEmpty }
@@ -82,6 +89,10 @@ import SwiftUI
             forInterval: CMTime(seconds: 0.035, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             Task { @MainActor in self?.tick(time.seconds) }
+        }
+        // Delivered after the new style is stored; the publisher itself fires before.
+        styleChange = AppSettings.shared.$style.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.rebuildCues()
         }
     }
     func launchArguments() {
@@ -147,6 +158,51 @@ import SwiftUI
                 !Task.isCancelled
             else { return }
             self?.setPlaybackItem(item, mapper: mapper)
+        }
+    }
+    /// The cue on screen at the playhead. Removed material has no subtitle; with Preview cuts on, a playhead
+    /// inside a cut shows the frame at its join, so that frame's cue is on screen.
+    var playheadCue: Int? {
+        guard previewCuts || !mapper.cutRanges.contains(where: { $0.contains(playhead) }) else { return nil }
+        return cueIndex(at: mapper.sourceToCut(playhead))
+    }
+    /// The cue covering an edited time, if any.
+    func cueIndex(at time: Double) -> Int? {
+        // Cues are in edit order and do not overlap: find the first that ends after the time.
+        var low = 0
+        var high = cues.count
+        while low < high {
+            let mid = (low + high) / 2
+            if cues[mid].end > time { high = mid } else { low = mid + 1 }
+        }
+        return low < cues.count && cues[low].start <= time ? low : nil
+    }
+    /// A trim drag changes the edit on every mouse event. One build runs at a time and the latest edit is
+    /// built when it finishes, so the subtitles keep up with the drag without queueing a build per event.
+    private func rebuildCues() {
+        guard cueTask == nil else {
+            cuesStale = true
+            return
+        }
+        guard let project, project.transcript != nil else {
+            if !cues.isEmpty { cues = [] }
+            return
+        }
+        let mapper = mapper
+        let style = AppSettings.shared.style
+        cueTask = Task { [weak self] in
+            let cues = await Task.detached(priority: .userInitiated) {
+                SubtitleBuilder(style: style).build(
+                    transcript: project.transcript, mapper: mapper,
+                    fillers: project.candidates.filter { $0.kind == .filler })
+            }.value
+            guard let self else { return }
+            cueTask = nil
+            if cues != self.cues { self.cues = cues }
+            if cuesStale {
+                cuesStale = false
+                rebuildCues()
+            }
         }
     }
     private func setPlaybackItem(_ item: AVPlayerItem, mapper: TimelineMapper?) {

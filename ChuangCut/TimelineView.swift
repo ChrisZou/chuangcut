@@ -80,7 +80,7 @@ final class TimelinePanel: NSView {
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 190),
+            scroll.heightAnchor.constraint(equalToConstant: 222),
         ])
         observers = [
             Observer { [weak self] in
@@ -95,7 +95,9 @@ final class TimelinePanel: NSView {
             Observer { [weak self] in self?.canvas.update() },
             Observer { [weak self] in
                 guard let self else { return }
-                _ = (model.selectedSegment, model.peaks.count, model.thumbnails.generation)
+                _ = (
+                    model.selectedSegment, model.peaks.count, model.thumbnails.generation, model.cues, model.previewCuts
+                )
                 canvas.needsDisplay = true
             },
             Observer { [weak self] in
@@ -152,13 +154,18 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
     private var playhead = 0.0
     private var dragState: DragState?
     private var scrubbing = false
+    /// A click on a subtitle jumps to its start; only dragging from there scrubs.
+    private var scrubOnDrag = false
     private var lastSeek = 0.0
     private var edgeTime = 0.0
     private var snapX: Double?
     private var tracking: NSTrackingArea?
     private var sourcePath: URL?
     private let inset = 20.0
-    private let trackY = 50.0
+    /// The subtitle track sits above the video track, as in other editors.
+    private let subtitleY = 46.0
+    private let subtitleHeight = 26.0
+    private let trackY = 80.0
     private let trackHeight = 100.0
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -208,7 +215,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         guard let scroll else { return }
         let size = NSSize(
             width: max(scroll.contentSize.width, displayDuration * pps + inset * 2 + 60),
-            height: max(165, scroll.contentSize.height))
+            height: max(trackY + trackHeight + 15, scroll.contentSize.height))
         if frame.size != size { frame.size = size }
     }
     private func scrollTo(_ position: Double) {
@@ -227,6 +234,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         NSColor.separatorColor.setFill()
         NSRect(x: dirtyRect.minX, y: 34, width: dirtyRect.width, height: 0.5).fill()
         drawRuler(in: dirtyRect, context: cg)
+        drawSubtitles(in: dirtyRect)
         NSColor.quaternaryLabelColor.withAlphaComponent(0.12).setFill()
         NSBezierPath(
             roundedRect: NSRect(x: inset, y: trackY, width: max(bounds.width - inset * 2, 1), height: trackHeight),
@@ -349,7 +357,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             let label = String(format: "%.2fs   %+.2fs", edgeTime, edgeTime - old)
             let box = NSRect(
                 x: min(visibleRect.maxX - 155, max(visibleRect.minX + 8, drag.edgeX + (edgeTime - old) * pps - 70)),
-                y: 155, width: 145, height: 25)
+                y: trackY + trackHeight + 5, width: 145, height: 25)
             NSColor.labelColor.setFill()
             NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
             drawText(
@@ -360,6 +368,74 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         if !requests.isEmpty {
             let times = requests
             DispatchQueue.main.async { [weak model] in model?.thumbnails.request(times) }
+        }
+    }
+    /// Where a cue sits on the canvas, as x ranges. With removed material shown, a cue that spans a cut is
+    /// drawn in pieces over the source it was spoken in.
+    private func spans(_ cue: SubtitleCue) -> [ClosedRange<Double>] {
+        guard removed else { return [(inset + cue.start * pps)...(inset + cue.end * pps)] }
+        return clips.compactMap { clip in
+            let lower = max(cue.start, clip.position)
+            let upper = min(cue.end, clip.position + clip.source.duration)
+            guard upper > lower else { return nil }
+            let offset = clip.source.start - clip.position
+            return (inset + (lower + offset) * pps)...(inset + (upper + offset) * pps)
+        }
+    }
+    /// Edited time at a canvas x, nil over removed material.
+    private func editedTime(_ x: Double) -> Double? {
+        let time = max(0, (x - inset) / pps)
+        guard removed else { return time }
+        return mapper.cutRanges.contains { $0.contains(time) } ? nil : mapper.sourceToCut(time)
+    }
+    private func cueIndex(at point: NSPoint) -> Int? {
+        guard point.y >= subtitleY, point.y < subtitleY + subtitleHeight, let time = editedTime(point.x) else {
+            return nil
+        }
+        return model?.cueIndex(at: time)
+    }
+    private func drawSubtitles(in dirty: NSRect) {
+        guard let model else { return }
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.12).setFill()
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: inset, y: subtitleY, width: max(bounds.width - inset * 2, 1), height: subtitleHeight),
+            xRadius: 5, yRadius: 5
+        ).fill()
+        let cues = model.cues
+        guard !cues.isEmpty else { return }
+        let current = model.playheadCue
+        func time(_ x: Double) -> Double { removed ? mapper.sourceToCut((x - inset) / pps) : (x - inset) / pps }
+        let first = time(dirty.minX)
+        let last = time(dirty.maxX)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        for (index, cue) in cues.enumerated() where cue.end >= first && cue.start <= last {
+            let active = index == current
+            for span in spans(cue) {
+                // A hairline gap keeps back-to-back cues apart.
+                let box = NSRect(
+                    x: span.lowerBound + 0.5, y: subtitleY, width: max(1, span.upperBound - span.lowerBound - 1),
+                    height: subtitleHeight)
+                guard box.intersects(dirty) else { continue }
+                (active
+                    ? NSColor(calibratedRed: 0.62, green: 0.47, blue: 0.2, alpha: 1)
+                    : NSColor(calibratedRed: 0.37, green: 0.29, blue: 0.16, alpha: 1)).setFill()
+                NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11, weight: active ? .semibold : .regular),
+                    .foregroundColor: NSColor.white.withAlphaComponent(active ? 1 : 0.86),
+                    .paragraphStyle: paragraph,
+                ]
+                // A block too narrow for a character and an ellipsis stays plain rather than showing "…".
+                let room = box.width - 12
+                guard room >= 22 || (cue.text as NSString).size(withAttributes: attributes).width <= room else {
+                    continue
+                }
+                (cue.text as NSString).draw(
+                    with: NSRect(x: box.minX + 7, y: box.minY + 6, width: room, height: 15),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)
+            }
         }
     }
     private func drawWaveform(_ clip: Clip, rect: NSRect, dirty: NSRect, context: CGContext) {
@@ -460,7 +536,11 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
     }
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if removed, let cut = model?.project?.candidates.first(where: { $0.range.contains((point.x - inset) / pps) }) {
+        if let index = cueIndex(at: point), let cue = model?.cues[index] {
+            toolTip = "\(cue.text) · Click to jump here, double-click to play"
+        } else if removed,
+            let cut = model?.project?.candidates.first(where: { $0.range.contains((point.x - inset) / pps) })
+        {
             toolTip =
                 "\(cut.kind.title) · \(String(format: "%.2f–%.2fs", cut.sourceStart, cut.sourceEnd)) · ⌥ click to toggle"
         } else if let clip = clips.first(where: { rect($0).contains(point) }) {
@@ -511,6 +591,12 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
                 model.pause()
                 scrub(point, force: true)
             }
+        } else if let index = cueIndex(at: point) {
+            // Like a word in the transcript, a subtitle jumps to where it starts.
+            model.selectedSegment = nil
+            model.pause()
+            model.seek(mapper.cutToSource(model.cues[index].start))
+            if event.clickCount == 2 { model.togglePlayback() } else { scrubOnDrag = true }
         } else {
             if point.y > 35 { model.selectedSegment = nil }
             scrubbing = true
@@ -541,9 +627,14 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             needsDisplay = true
         } else if scrubbing {
             scrub(point, force: false)
+        } else if scrubOnDrag {
+            scrubOnDrag = false
+            scrubbing = true
+            scrub(point, force: true)
         }
     }
     override func mouseUp(with event: NSEvent) {
+        scrubOnDrag = false
         if dragState != nil {
             model?.endTrim()
             seek(edgeTime, force: true)

@@ -14,9 +14,6 @@ final class PlayerPanel: NSView {
     private let previewSwitch = NSSwitch()
     private let reveal: NSButton
     private var observers: [Observer] = []
-    /// The edit's subtitles, rebuilt shortly after each change.
-    private var cues: [SubtitleCue] = []
-    private var cueTask: Task<Void, Never>?
     private var styleChange: AnyCancellable?
 
     init(model: EditorModel) {
@@ -87,18 +84,10 @@ final class PlayerPanel: NSView {
         observers = [
             Observer { [weak self] in self?.updateTime() },
             Observer { [weak self] in self?.updateControls() },
-            Observer { [weak self] in
-                guard let self else { return }
-                _ = model.revision
-                rebuildCues()
-            },
             Observer { [weak self] in self?.updateSubtitle() },
         ]
         stage.subtitles.style = AppSettings.shared.style
-        styleChange = AppSettings.shared.$style.sink { [weak self] style in
-            self?.stage.subtitles.style = style
-            self?.rebuildCues()
-        }
+        styleChange = AppSettings.shared.$style.sink { [weak self] style in self?.stage.subtitles.style = style }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -121,51 +110,11 @@ final class PlayerPanel: NSView {
             stage.aspect = Double(media.width) / Double(media.height)
         }
     }
-    /// Cues come from the same builder as export, so the preview shows exactly the exported lines. A trim drag
-    /// changes the edit on every mouse event, hence the short delay.
-    private func rebuildCues() {
-        cueTask?.cancel()
-        guard let project = model.project, project.transcript != nil else {
-            cues = []
-            updateSubtitle()
-            return
-        }
-        let mapper = model.mapper
-        let style = AppSettings.shared.style
-        cueTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled else { return }
-            let cues = await Task.detached(priority: .userInitiated) {
-                SubtitleBuilder(style: style).build(
-                    transcript: project.transcript, mapper: mapper,
-                    fillers: project.candidates.filter { $0.kind == .filler })
-            }.value
-            guard let self, !Task.isCancelled else { return }
-            self.cues = cues
-            updateSubtitle()
-        }
-    }
     private func updateSubtitle() {
-        let mapper = model.mapper
-        let playhead = model.playhead
         if let media = model.project?.media {
             stage.subtitles.frameSize = CGSize(width: media.width, height: media.height)
         }
-        // Removed material has no subtitle. With Preview cuts on, a playhead inside a cut shows the frame at
-        // its join, so that frame's cue is shown.
-        guard model.previewCuts || !mapper.cutRanges.contains(where: { $0.contains(playhead) }) else {
-            stage.subtitles.text = nil
-            return
-        }
-        let time = mapper.sourceToCut(playhead)
-        // Cues are in edit order and do not overlap: find the first that ends after the edit time.
-        var low = 0
-        var high = cues.count
-        while low < high {
-            let mid = (low + high) / 2
-            if cues[mid].end > time { high = mid } else { low = mid + 1 }
-        }
-        stage.subtitles.text = low < cues.count && cues[low].start <= time ? cues[low].text : nil
+        stage.subtitles.text = model.playheadCue.map { model.cues[$0].text }
     }
     @objc private func skipBackward() { model.skip(-5) }
     @objc private func skipForward() { model.skip(5) }

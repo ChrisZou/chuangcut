@@ -45,7 +45,8 @@ To test dragging an **unselected** clip edge, launch with `--select-segment 0 --
 - Drag the ruler or clip body to scrub. Pinch or `⌘`-scroll to zoom around the cursor; the logarithmic slider/buttons zoom around the playhead (0.05–300 pt/s). Fit shows the whole edit, including multi-hour recordings; playback follows the playhead automatically.
 - **Preview cuts** (the switch under the player, or `⇧⌘P`) plays the edit as one continuous composition. Space plays/pauses.
 - **Export** (`⇧⌘E`) chooses the destination, encoding quality, a subtitle track (on by default), SRT output, subtitle burn-in and style. The green checkmark reveals the completed export.
-- The player shows the subtitle under the playhead, drawn exactly as burn-in would draw it with the style from Settings › Subtitles. Its cues come from the same builder as export and are rebuilt shortly after each edit.
+- A subtitle track above the video track shows each cue as a block, the one under the playhead highlighted. Click a cue to jump to its start, double-click to play from there. With **Show removed** on, a cue spanning a cut is drawn in pieces over the source it was spoken in.
+- The player shows the subtitle under the playhead, drawn exactly as burn-in would draw it with the style from Settings › Subtitles. The player and the subtitle track share one set of cues from the same builder as export; it is rebuilt after every edit or style change, one build at a time, so it keeps up with a trim drag.
 - Import, transcription, detection, and export have cancellation. Partial video exports are staged and only replace the destination after success.
 
 ## Settings and models
