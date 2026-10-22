@@ -173,9 +173,7 @@ public struct FFmpegRunner {
         defer { try? FileManager.default.removeItem(at: staging) }
         let partial = staging.appendingPathComponent("output.mp4")
         let builder = SubtitleBuilder(style: options.style)
-        let cues = builder.build(
-            transcript: project.transcript, mapper: mapper,
-            fillers: project.candidates.filter { $0.kind == .filler })
+        let cues = builder.build(project: project, mapper: mapper)
         var args = ["-y", "-hide_banner", "-i", project.source.path]
         var filters: [String] = []
         if options.burnSubtitles {

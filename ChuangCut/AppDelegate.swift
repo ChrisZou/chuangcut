@@ -114,8 +114,8 @@ import SwiftUI
             "Clip",
             [
                 item("Split at Playhead", #selector(EditorWindowController.splitAtPlayhead(_:)), "b"),
-                item("Remove Selected Clip", #selector(TimelineCanvas.removeSelectedClip(_:)), "\u{8}", []),
-                item("Deselect Clip", #selector(TimelineCanvas.deselectClip(_:)), "\u{1b}", []), .separator(),
+                item("Remove Selected Clip", #selector(TimelineCanvas.deleteSelection(_:)), "\u{8}", []),
+                item("Deselect", #selector(TimelineCanvas.deselect(_:)), "\u{1b}", []), .separator(),
                 item("Preview Cuts", #selector(EditorWindowController.togglePreview(_:)), "p", [.command, .shift]),
                 item("Snap Trim Edges", #selector(EditorWindowController.toggleSnap(_:))), .separator(),
                 item("Transcribe Again…", #selector(EditorWindowController.transcribe(_:))),

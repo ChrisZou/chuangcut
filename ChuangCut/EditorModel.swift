@@ -11,15 +11,26 @@ import SwiftUI
             // Derived once per edit; views and the playback tick read it many times per frame.
             mapper = project?.mapper ?? TimelineMapper(duration: 0, cuts: [])
             if (project == nil) != (oldValue == nil) { hasProject = project != nil }
-            if project?.transcript != oldValue?.transcript {
+            let transcriptChanged = project?.transcript != oldValue?.transcript
+            if transcriptChanged {
                 spokenWordCount = project?.transcript?.words.filter { !$0.isPunctuation }.count
             }
-            rebuildCues()
+            // Retiming a subtitle changes nothing the cues are built from, so a drag moves the cue at once.
+            if !transcriptChanged, project?.source == oldValue?.source, project?.candidates == oldValue?.candidates,
+                project?.splitPoints == oldValue?.splitPoints,
+                project?.subtitleEdits?.hiddenWords == oldValue?.subtitleEdits?.hiddenWords
+            {
+                shiftCues()
+            } else {
+                rebuildCues()
+            }
         }
     }
     private(set) var mapper = TimelineMapper(duration: 0, cuts: [])
     /// The edit's subtitles in edited time, from the same builder as export, for the player and the timeline.
     private(set) var cues: [SubtitleCue] = []
+    /// `cues` before the user's retiming, which that retiming is measured from.
+    @ObservationIgnored private var unshiftedCues: [SubtitleCue] = []
     /// Changes only on open/close, so views that only need this are not refreshed on every edit.
     private(set) var hasProject = false
     private(set) var spokenWordCount: Int?
@@ -37,7 +48,9 @@ import SwiftUI
     let player = AVPlayer()
     let thumbnails = ThumbnailStore()
     let editUndoManager = UndoManager()
-    var selectedSegment: Int?
+    var selectedSegment: Int? { didSet { if selectedSegment != nil { selectedCue = nil } } }
+    /// The selected subtitle by its first word, which outlives rebuilds of the cues.
+    var selectedCue: UUID? { didSet { if selectedCue != nil { selectedSegment = nil } } }
     var selectedCandidate: UUID?
     var pointsPerSecond = 40.0
     var showRemoved = false
@@ -52,11 +65,12 @@ import SwiftUI
         var splits: [Double]
         var transcript: Transcript?
         var silences: [TimeRange]
+        var subtitles: SubtitleEdits?
     }
     private var snapshot: EditSnapshot {
         EditSnapshot(
             cuts: project?.candidates ?? [], splits: project?.splitPoints ?? [], transcript: project?.transcript,
-            silences: project?.silences ?? [])
+            silences: project?.silences ?? [], subtitles: project?.subtitleEdits)
     }
     var selectedRange: TimeRange? {
         guard let i = selectedSegment, mapper.keptRanges.indices.contains(i) else { return nil }
@@ -168,15 +182,23 @@ import SwiftUI
     }
     /// The cue covering an edited time, if any.
     func cueIndex(at time: Double) -> Int? {
-        // Cues are in edit order and do not overlap: find the first that ends after the time.
+        // Seeking to a cue's start comes back a hair early through the time mapping and the player's
+        // timescale; that time still belongs to the cue.
+        let time = time + 0.0001
+        let index = firstCue(endingAfter: time)
+        return index < cues.count && cues[index].start <= time ? index : nil
+    }
+    /// Cues are in edit order and do not overlap, so their ends are sorted.
+    func firstCue(endingAfter time: Double) -> Int {
         var low = 0
         var high = cues.count
         while low < high {
             let mid = (low + high) / 2
             if cues[mid].end > time { high = mid } else { low = mid + 1 }
         }
-        return low < cues.count && cues[low].start <= time ? low : nil
+        return low
     }
+    var selectedCueIndex: Int? { selectedCue.flatMap { id in cues.firstIndex { $0.firstWord == id } } }
     /// A trim drag changes the edit on every mouse event. One build runs at a time and the latest edit is
     /// built when it finishes, so the subtitles keep up with the drag without queueing a build per event.
     private func rebuildCues() {
@@ -185,6 +207,7 @@ import SwiftUI
             return
         }
         guard let project, project.transcript != nil else {
+            unshiftedCues = []
             if !cues.isEmpty { cues = [] }
             return
         }
@@ -194,16 +217,24 @@ import SwiftUI
             let cues = await Task.detached(priority: .userInitiated) {
                 SubtitleBuilder(style: style).build(
                     transcript: project.transcript, mapper: mapper,
-                    fillers: project.candidates.filter { $0.kind == .filler })
+                    fillers: project.candidates.filter { $0.kind == .filler },
+                    hiding: project.subtitleEdits?.hiddenWords ?? [])
             }.value
             guard let self else { return }
             cueTask = nil
-            if cues != self.cues { self.cues = cues }
+            unshiftedCues = cues
+            shiftCues()
             if cuesStale {
                 cuesStale = false
                 rebuildCues()
             }
         }
+    }
+    /// Applies the current retiming, which is cheap enough for every event of a drag.
+    private func shiftCues() {
+        let cues = (project?.subtitleEdits ?? SubtitleEdits()).shifting(
+            unshiftedCues, duration: mapper.editedDuration)
+        if cues != self.cues { self.cues = cues }
     }
     private func setPlaybackItem(_ item: AVPlayerItem, mapper: TimelineMapper?) {
         let time = playhead
@@ -310,6 +341,7 @@ import SwiftUI
         project = nil
         editUndoManager.removeAllActions()
         selectedSegment = nil
+        selectedCue = nil
         selectedCandidate = nil
         exportedURL = nil
         let tools = AppSettings.shared.tools
@@ -462,7 +494,9 @@ import SwiftUI
         project?.splitPoints = state.splits
         project?.transcript = state.transcript
         project?.silences = state.silences
+        project?.subtitleEdits = state.subtitles
         selectedSegment = nil
+        selectedCue = nil
         changed()
     }
     func beginTrim() {
@@ -492,7 +526,40 @@ import SwiftUI
         if baseline.cuts != project?.candidates {
             recordUndo("Trim clip", previous: baseline)
             changed()
+        } else if baseline.subtitles != project?.subtitleEdits {
+            recordUndo("Adjust subtitle timing", previous: baseline)
+            save()
         }
+    }
+    /// Moves a subtitle's start or end, given by its anchor word, to an edited time during a drag.
+    func moveCueEdge(anchor: UUID, edge: TrimEdge, to time: Double) {
+        guard !busy, trimBaseline != nil,
+            let cue = unshiftedCues.first(where: { (edge == .left ? $0.firstWord : $0.lastWord) == anchor })
+        else { return }
+        let shift = time - (edge == .left ? cue.start : cue.end)
+        var edits = project?.subtitleEdits ?? SubtitleEdits()
+        // Back where its words put it, an edge needs no shift.
+        let value = abs(shift) < 0.0005 ? nil : shift
+        if edge == .left { edits.startShifts[anchor] = value } else { edits.endShifts[anchor] = value }
+        project?.subtitleEdits = edits
+    }
+    /// Deletes the selected subtitle. Its words stay out of the subtitles through later edits; the speech
+    /// stays in the video.
+    func deleteSelectedCue() {
+        guard !busy, let index = selectedCueIndex, let words = project?.transcript?.words,
+            let first = words.firstIndex(where: { $0.id == cues[index].firstWord }),
+            let last = words[first...].firstIndex(where: { $0.id == cues[index].lastWord })
+        else { return }
+        recordUndo("Delete subtitle")
+        var edits = project?.subtitleEdits ?? SubtitleEdits()
+        for word in words[first...last] {
+            edits.hiddenWords.insert(word.id)
+            edits.startShifts[word.id] = nil
+            edits.endShifts[word.id] = nil
+        }
+        project?.subtitleEdits = edits
+        selectedCue = nil
+        save()
     }
     func deleteSelectedClip() {
         guard !busy, let range = selectedRange else { return }
@@ -515,6 +582,10 @@ import SwiftUI
     private func changed() {
         revision += 1
         rebuildPlayback()
+        save()
+    }
+    /// Subtitle edits only need saving: the transcript and the playback composition stay as they are.
+    private func save() {
         guard let project else { return }
         // Encoding a long transcript takes tens of milliseconds.
         saveQueue.async { [weak self] in

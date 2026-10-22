@@ -144,6 +144,35 @@ extension SubtitleStyle {
         return style
     }
 }
+/// The user's changes to the generated subtitles. They are anchored to words, so they follow the words
+/// through cuts, trims and re-splits instead of staying at a time.
+public struct SubtitleEdits: Codable, Equatable, Sendable {
+    /// Words whose subtitle the user deleted. The speech itself stays in the edit.
+    public var hiddenWords: Set<UUID> = []
+    /// Seconds a cue's start moves on the edited timeline, keyed by the cue's first word.
+    public var startShifts: [UUID: Double] = [:]
+    /// Seconds a cue's end moves, keyed by its last word.
+    public var endShifts: [UUID: Double] = [:]
+    public init() {}
+    /// Moves the cue edges the user dragged. Where later edits bring a moved edge past a neighbour, the
+    /// cue starting there keeps its start, so cues never overlap. Cues keep their order and count.
+    public func shifting(_ cues: [SubtitleCue], duration: Double) -> [SubtitleCue] {
+        guard !startShifts.isEmpty || !endShifts.isEmpty else { return cues }
+        var result = cues
+        for i in result.indices {
+            if let word = result[i].firstWord, let shift = startShifts[word] { result[i].start += shift }
+            if let word = result[i].lastWord, let shift = endShifts[word] { result[i].end += shift }
+        }
+        var previousEnd = 0.0
+        for i in result.indices {
+            let next = i + 1 < result.count ? result[i + 1].start : duration
+            result[i].start = min(max(result[i].start, previousEnd), duration)
+            result[i].end = max(min(result[i].end, next, duration), min(duration, result[i].start + 0.04))
+            previousEnd = result[i].end
+        }
+        return result
+    }
+}
 public struct MediaInfo: Codable, Sendable {
     public var duration: Double
     public var width: Int
@@ -159,6 +188,7 @@ public struct Project: Codable, Sendable {
     public var candidates: [CutCandidate]
     public var silences: [TimeRange]
     public var splitPoints: [Double]? = nil
+    public var subtitleEdits: SubtitleEdits? = nil
     public init(
         source: URL, media: MediaInfo, transcript: Transcript? = nil, candidates: [CutCandidate] = [],
         silences: [TimeRange] = []

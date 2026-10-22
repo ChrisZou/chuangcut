@@ -124,6 +124,33 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(builder.srt(cues).contains(" --> "))
         XCTAssertTrue(builder.ass(cues, width: 1280, height: 720).contains("PingFang SC"))
     }
+    func testDeletedAndRetimedSubtitlesFollowTheirWords() {
+        let input = words("今天我们聊剪辑。软件会识别停顿。最后导出视频。")
+        let map = TimelineMapper(duration: 10, cuts: [])
+        let builder = SubtitleBuilder()
+        let cues = builder.build(words: input, mapper: map)
+        XCTAssertEqual(cues.map(\.text), ["今天我们聊剪辑", "软件会识别停顿", "最后导出视频"])
+        // Deleting the middle cue hides its words and leaves its neighbours as they were.
+        let remaining = builder.build(words: input, mapper: map, hiding: Set(input[8...15].map(\.id)))
+        XCTAssertEqual(remaining, [cues[0], cues[2]])
+        // A moved start keeps its shift; an end moved past it stops there.
+        var edits = SubtitleEdits()
+        edits.endShifts[remaining[0].lastWord!] = 5
+        edits.startShifts[remaining[1].firstWord!] = -0.5
+        let shifted = edits.shifting(remaining, duration: map.editedDuration)
+        XCTAssertEqual(shifted[1].start, remaining[1].start - 0.5, accuracy: 1e-9)
+        XCTAssertEqual(shifted[1].end, remaining[1].end)
+        XCTAssertEqual(shifted[0].end, shifted[1].start, accuracy: 1e-9)
+        XCTAssertEqual(shifted[0].start, remaining[0].start)
+        // Export applies the same edits.
+        var project = Project(
+            source: URL(fileURLWithPath: "/tmp/a.mp4"),
+            media: MediaInfo(duration: 10, width: 1920, height: 1080, bitrate: 0, hasAudio: true),
+            transcript: Transcript(segments: [Segment(start: 0, end: 3.45, text: "", words: input)]))
+        project.subtitleEdits = edits
+        project.subtitleEdits?.hiddenWords = Set(input[8...15].map(\.id))
+        XCTAssertEqual(builder.build(project: project, mapper: project.mapper), shifted)
+    }
     func testLatinWordsNotSplit() {
         let input = ["Hello", " wonderful", " world", " this", " is", " ChuangCut", "."].enumerated().map {
             Word(text: $0.element, start: Double($0.offset), end: Double($0.offset + 1))

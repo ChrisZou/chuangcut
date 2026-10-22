@@ -24,16 +24,15 @@ struct SubtitlePreview: View {
             }
         }.frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 10))
             .accessibilityLabel("Subtitle style preview over video")
-            .onAppear(perform: render).onChange(of: style) { _, _ in render() }.onChange(of: model.revision) { _, _ in
+            .onAppear(perform: render).onChange(of: style) { _, _ in render() }.onChange(of: model.cues.first) { _, _ in
                 render()
             }
     }
     private func render() {
         let project = model.project
-        let cue = SubtitleBuilder(style: style).build(
-            transcript: project?.transcript, mapper: model.mapper,
-            fillers: project?.candidates.filter { $0.kind == .filler } ?? [], maxCues: 1
-        ).first
+        let cue = project.flatMap {
+            SubtitleBuilder(style: style).build(project: $0, mapper: model.mapper, maxCues: 1).first
+        }
         // The renderer scales the style with the canvas, so a downscaled canvas looks identical in a
         // 150-point preview and avoids rasterizing a full 4K frame on every slider change.
         let width = Double(project?.media.width ?? 1280)

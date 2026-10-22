@@ -5,10 +5,15 @@ public struct SubtitleCue: Codable, Equatable, Sendable {
     public var start: Double
     public var end: Double
     public var text: String
-    public init(start: Double, end: Double, text: String) {
+    /// The cue's first and last transcript word, which anchor the user's edits to it.
+    public var firstWord: UUID?
+    public var lastWord: UUID?
+    public init(start: Double, end: Double, text: String, firstWord: UUID? = nil, lastWord: UUID? = nil) {
         self.start = start
         self.end = end
         self.text = text
+        self.firstWord = firstWord
+        self.lastWord = lastWord
     }
 }
 public struct SubtitleBuilder {
@@ -18,16 +23,26 @@ public struct SubtitleBuilder {
     /// Whisper segments are sentence-like even when Whisper emits no sentence-final punctuation, so
     /// each segment end also ends a subtitle sentence.
     public func build(
-        transcript: Transcript?, mapper: TimelineMapper, fillers: [CutCandidate] = [], maxCues: Int = .max
+        transcript: Transcript?, mapper: TimelineMapper, fillers: [CutCandidate] = [], hiding hidden: Set<UUID> = [],
+        maxCues: Int = .max
     ) -> [SubtitleCue] {
         build(
-            words: transcript?.words ?? [], mapper: mapper, fillers: fillers, maxCues: maxCues,
+            words: transcript?.words ?? [], mapper: mapper, fillers: fillers, hiding: hidden, maxCues: maxCues,
             sentenceEnds: transcript?.sentenceEnds ?? [])
+    }
+    /// A project's subtitles as exported: the edit's speech, less the subtitles the user deleted, with the
+    /// user's timing.
+    public func build(project: Project, mapper: TimelineMapper, maxCues: Int = .max) -> [SubtitleCue] {
+        let edits = project.subtitleEdits ?? SubtitleEdits()
+        let cues = build(
+            transcript: project.transcript, mapper: mapper, fillers: project.candidates.filter { $0.kind == .filler },
+            hiding: edits.hiddenWords, maxCues: maxCues)
+        return edits.shifting(cues, duration: mapper.editedDuration)
     }
     /// `maxCues` stops early when a caller such as a style preview needs only the first cues.
     public func build(
-        words: [Word], mapper: TimelineMapper, fillers: [CutCandidate] = [], maxCues: Int = .max,
-        sentenceEnds: Set<UUID> = []
+        words: [Word], mapper: TimelineMapper, fillers: [CutCandidate] = [], hiding hidden: Set<UUID> = [],
+        maxCues: Int = .max, sentenceEnds: Set<UUID> = []
     ) -> [SubtitleCue] {
         let fillerMapper = TimelineMapper(duration: mapper.duration, cuts: fillers.filter { $0.kind == .filler })
         var cues: [SubtitleCue] = []
@@ -44,7 +59,9 @@ public struct SubtitleBuilder {
             guard !text.isEmpty else { return }
             let start = max(cues.last?.end ?? 0, mapper.sourceToCut(first.start))
             let end = min(mapper.editedDuration, max(start + 0.04, mapper.sourceToCut(last.end)))
-            if end > start { cues.append(SubtitleCue(start: start, end: end, text: text)) }
+            if end > start {
+                cues.append(SubtitleCue(start: start, end: end, text: text, firstWord: first.id, lastWord: last.id))
+            }
         }
         func splitSentence(_ sentence: [Word]) {
             guard !sentence.isEmpty, cues.count < maxCues else { return }
@@ -138,6 +155,12 @@ public struct SubtitleBuilder {
         }
         for word in words {
             if cues.count >= maxCues { break }
+            if hidden.contains(word.id) {
+                // A deleted subtitle's words end the text before them; the text after starts a new cue.
+                splitSentence(buffer)
+                buffer = []
+                continue
+            }
             let endsSentence = word.text.contains(where: { "。！？.!?".contains($0) }) || sentenceEnds.contains(word.id)
             if mapper.removes(word) || fillerMapper.removes(word) {
                 // A cut sentence ending still separates the retained text from the next

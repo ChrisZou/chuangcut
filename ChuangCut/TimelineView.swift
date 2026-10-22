@@ -23,7 +23,7 @@ final class TimelinePanel: NSView {
         canvas.scroll = scroll
         scroll.documentView = canvas
         canvas.setAccessibilityLabel(
-            "Video timeline. Select a clip, drag its edges to trim. Delete removes a selected clip.")
+            "Video timeline. Select a clip or subtitle and drag its edges to trim. Delete removes the selection.")
 
         let icon = NSImageView(image: .symbol("rectangle.stack", "Timeline", size: 11))
         let title = NSTextField.label(12, weight: .semibold)
@@ -96,9 +96,11 @@ final class TimelinePanel: NSView {
             Observer { [weak self] in
                 guard let self else { return }
                 _ = (
-                    model.selectedSegment, model.peaks.count, model.thumbnails.generation, model.cues, model.previewCuts
+                    model.selectedSegment, model.selectedCue, model.peaks.count, model.thumbnails.generation,
+                    model.cues, model.previewCuts
                 )
                 canvas.needsDisplay = true
+                canvas.window?.invalidateCursorRects(for: canvas)
             },
             Observer { [weak self] in
                 guard let self else { return }
@@ -147,12 +149,24 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         let edgeX: Double
         let playhead: Double
     }
+    /// A subtitle edge being dragged, in edited time.
+    private struct CueDragState {
+        let anchor: UUID
+        let edge: TrimEdge
+        let old: Double
+        let originX: Double
+        let edgeX: Double
+        let lower: Double
+        let upper: Double
+        let targets: [Double]
+    }
     private var clips: [Clip] = []
     private var mapper = TimelineMapper(duration: 0, cuts: [])
     private var pps = 40.0
     private var removed = false
     private var playhead = 0.0
     private var dragState: DragState?
+    private var cueDrag: CueDragState?
     private var scrubbing = false
     /// A click on a subtitle jumps to its start; only dragging from there scrubs.
     private var scrubOnDrag = false
@@ -354,15 +368,9 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         }
         if let drag = dragState {
             let old = drag.edge == .left ? drag.source.start : drag.source.end
-            let label = String(format: "%.2fs   %+.2fs", edgeTime, edgeTime - old)
-            let box = NSRect(
-                x: min(visibleRect.maxX - 155, max(visibleRect.minX + 8, drag.edgeX + (edgeTime - old) * pps - 70)),
-                y: trackY + trackHeight + 5, width: 145, height: 25)
-            NSColor.labelColor.setFill()
-            NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
-            drawText(
-                label, at: NSPoint(x: box.minX + 10, y: box.minY + 6), color: .textBackgroundColor, size: 11, mono: true
-            )
+            drawDragLabel(edgeTime, from: old, at: drag.edgeX + (edgeTime - old) * pps)
+        } else if let drag = cueDrag {
+            drawDragLabel(edgeTime, from: drag.old, at: cueX(edgeTime))
         }
         // Queue only visible time buckets; generation and cache delivery occur asynchronously.
         if !requests.isEmpty {
@@ -370,6 +378,21 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             DispatchQueue.main.async { [weak model] in model?.thumbnails.request(times) }
         }
     }
+    private func drawDragLabel(_ time: Double, from old: Double, at x: Double) {
+        let box = NSRect(
+            x: min(visibleRect.maxX - 155, max(visibleRect.minX + 8, x - 70)), y: trackY + trackHeight + 5, width: 145,
+            height: 25)
+        NSColor.labelColor.setFill()
+        NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
+        drawText(
+            String(format: "%.2fs   %+.2fs", time, time - old), at: NSPoint(x: box.minX + 10, y: box.minY + 6),
+            color: .textBackgroundColor, size: 11, mono: true)
+    }
+    /// Edited time at a canvas x on the subtitle track; over removed material, the time of its join.
+    private func cueTime(_ x: Double) -> Double {
+        removed ? mapper.sourceToCut((x - inset) / pps) : (x - inset) / pps
+    }
+    private func cueX(_ time: Double) -> Double { inset + (removed ? mapper.cutToSource(time) : time) * pps }
     /// Where a cue sits on the canvas, as x ranges. With removed material shown, a cue that spans a cut is
     /// drawn in pieces over the source it was spoken in.
     private func spans(_ cue: SubtitleCue) -> [ClosedRange<Double>] {
@@ -405,38 +428,97 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         let cues = model.cues
         guard !cues.isEmpty else { return }
         let current = model.playheadCue
-        func time(_ x: Double) -> Double { removed ? mapper.sourceToCut((x - inset) / pps) : (x - inset) / pps }
-        let first = time(dirty.minX)
-        let last = time(dirty.maxX)
+        let selected = model.selectedCueIndex
+        let first = cueTime(dirty.minX)
+        let last = cueTime(dirty.maxX)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         for (index, cue) in cues.enumerated() where cue.end >= first && cue.start <= last {
             let active = index == current
-            for span in spans(cue) {
+            let pieces = spans(cue)
+            for (piece, span) in pieces.enumerated() {
                 // A hairline gap keeps back-to-back cues apart.
                 let box = NSRect(
                     x: span.lowerBound + 0.5, y: subtitleY, width: max(1, span.upperBound - span.lowerBound - 1),
                     height: subtitleHeight)
                 guard box.intersects(dirty) else { continue }
+                let path = NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4)
                 (active
                     ? NSColor(calibratedRed: 0.62, green: 0.47, blue: 0.2, alpha: 1)
                     : NSColor(calibratedRed: 0.37, green: 0.29, blue: 0.16, alpha: 1)).setFill()
-                NSBezierPath(roundedRect: box, xRadius: 4, yRadius: 4).fill()
+                path.fill()
+                var textMin = box.minX + 7
+                var textMax = box.maxX - 5
+                if index == selected {
+                    // The clip selection in miniature: an outline and a grip at each end of the cue.
+                    let width = min(6, box.width / 3)
+                    var handles: [Double] = []
+                    if piece == 0 {
+                        handles.append(box.minX)
+                        textMin += width
+                    }
+                    if piece == pieces.count - 1 {
+                        handles.append(box.maxX - width)
+                        textMax -= width
+                    }
+                    NSGraphicsContext.saveGraphicsState()
+                    path.addClip()
+                    for handleX in handles {
+                        let handle = NSRect(x: handleX, y: box.minY, width: width, height: box.height)
+                        NSColor.systemYellow.setFill()
+                        handle.fill()
+                        NSColor.black.withAlphaComponent(0.7).setFill()
+                        NSRect(x: handle.midX - 0.5, y: handle.midY - 5, width: 1, height: 10).fill()
+                    }
+                    NSGraphicsContext.restoreGraphicsState()
+                    NSColor.systemYellow.setStroke()
+                    path.lineWidth = 1.5
+                    path.stroke()
+                }
                 let attributes: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: 11, weight: active ? .semibold : .regular),
                     .foregroundColor: NSColor.white.withAlphaComponent(active ? 1 : 0.86),
                     .paragraphStyle: paragraph,
                 ]
                 // A block too narrow for a character and an ellipsis stays plain rather than showing "…".
-                let room = box.width - 12
+                let room = textMax - textMin
                 guard room >= 22 || (cue.text as NSString).size(withAttributes: attributes).width <= room else {
                     continue
                 }
                 (cue.text as NSString).draw(
-                    with: NSRect(x: box.minX + 7, y: box.minY + 6, width: room, height: 15),
+                    with: NSRect(x: textMin, y: box.minY + 6, width: room, height: 15),
                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)
             }
         }
+    }
+    /// The grab zones at a cue's ends: inside up to 6 points, a third of a short cue, and 3 points outside.
+    private func cueEdgeRects(_ cue: SubtitleCue) -> [(TrimEdge, NSRect, Double)] {
+        let pieces = spans(cue)
+        guard let lower = pieces.first?.lowerBound, let upper = pieces.last?.upperBound else { return [] }
+        let grab = min(6, (upper - lower) / 3)
+        return [
+            (.left, NSRect(x: lower - 3, y: subtitleY, width: grab + 3, height: subtitleHeight), lower),
+            (.right, NSRect(x: upper - grab, y: subtitleY, width: grab + 3, height: subtitleHeight), upper),
+        ]
+    }
+    /// The cue edge under a point. Where two cues meet, the one under the pointer wins.
+    private func cueEdge(at point: NSPoint) -> (index: Int, edge: TrimEdge)? {
+        guard let model, point.y >= subtitleY, point.y < subtitleY + subtitleHeight else { return nil }
+        let cues = model.cues
+        let latest = cueTime(point.x + 4)
+        var best: (index: Int, edge: TrimEdge, inside: Bool, distance: Double)?
+        var index = model.firstCue(endingAfter: cueTime(point.x - 7))
+        while index < cues.count, cues[index].start <= latest {
+            for (edge, zone, x) in cueEdgeRects(cues[index]) where zone.contains(point) {
+                let inside = edge == .left ? point.x >= x : point.x <= x
+                let distance = abs(point.x - x)
+                if best.map({ inside != $0.inside ? inside : distance < $0.distance }) ?? true {
+                    best = (index, edge, inside, distance)
+                }
+            }
+            index += 1
+        }
+        return best.map { ($0.index, $0.edge) }
     }
     private func drawWaveform(_ clip: Clip, rect: NSRect, dirty: NSRect, context: CGContext) {
         // One read: every access to an observable property goes through its registrar.
@@ -526,6 +608,12 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
                 addCursorRect(handleRect(clip, edge: edge), cursor: .resizeLeftRight)
             }
         }
+        guard let model else { return }
+        let first = cueTime(visibleRect.minX)
+        let last = cueTime(visibleRect.maxX)
+        for cue in model.cues where cue.end >= first && cue.start <= last {
+            for (_, zone, _) in cueEdgeRects(cue) { addCursorRect(zone, cursor: .resizeLeftRight) }
+        }
     }
     override func updateTrackingAreas() {
         if let tracking { removeTrackingArea(tracking) }
@@ -537,7 +625,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let index = cueIndex(at: point), let cue = model?.cues[index] {
-            toolTip = "\(cue.text) · Click to jump here, double-click to play"
+            toolTip = "\(cue.text) · Drag its edges to retime, Delete removes it, double-click to play"
         } else if removed,
             let cut = model?.project?.candidates.first(where: { $0.range.contains((point.x - inset) / pps) })
         {
@@ -579,6 +667,10 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             model.beginTrim()
             return
         }
+        if let (index, edge) = cueEdge(at: point) {
+            beginCueDrag(index, edge: edge, at: point)
+            return
+        }
         if let clip = clips.first(where: { rect($0).contains(point) }) {
             model.selectedSegment = clip.index
             model.selectedCandidate = nil
@@ -593,20 +685,67 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             }
         } else if let index = cueIndex(at: point) {
             // Like a word in the transcript, a subtitle jumps to where it starts.
-            model.selectedSegment = nil
+            model.selectedCue = model.cues[index].firstWord
             model.pause()
             model.seek(mapper.cutToSource(model.cues[index].start))
             if event.clickCount == 2 { model.togglePlayback() } else { scrubOnDrag = true }
         } else {
-            if point.y > 35 { model.selectedSegment = nil }
+            if point.y > 35 {
+                model.selectedSegment = nil
+                model.selectedCue = nil
+            }
             scrubbing = true
             model.pause()
             scrub(point, force: true)
         }
     }
+    /// Selects the cue and starts moving one of its edges, between its neighbours and a fifth of a second
+    /// from its other edge.
+    private func beginCueDrag(_ index: Int, edge: TrimEdge, at point: NSPoint) {
+        guard let model, let anchor = edge == .left ? model.cues[index].firstWord : model.cues[index].lastWord
+        else { return }
+        let cues = model.cues
+        let cue = cues[index]
+        let minimum = min(0.2, cue.end - cue.start)
+        let lower = edge == .left ? (index > 0 ? cues[index - 1].end : 0) : cue.start + minimum
+        let upper =
+            edge == .left ? cue.end - minimum : (index + 1 < cues.count ? cues[index + 1].start : mapper.editedDuration)
+        let old = edge == .left ? cue.start : cue.end
+        // Edges snap to kept words near the drag range, the playhead and clip joins.
+        let from = mapper.cutToSource(lower) - 1
+        let to = mapper.cutToSource(upper) + 1
+        let words = (model.project?.transcript?.words ?? []).filter {
+            $0.end >= from && $0.start <= to && !mapper.removes($0)
+        }
+        let targets =
+            words.flatMap { [mapper.sourceToCut($0.start), mapper.sourceToCut($0.end)] }
+            + clips.map(\.position) + [mapper.sourceToCut(model.playhead), lower, upper]
+        model.selectedCue = cues[index].firstWord
+        cueDrag = CueDragState(
+            anchor: anchor, edge: edge, old: old, originX: point.x, edgeX: cueX(old), lower: lower, upper: upper,
+            targets: targets)
+        edgeTime = old
+        model.beginTrim()
+    }
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let drag = dragState, let model {
+        if let drag = cueDrag, let model {
+            var proposed = max(drag.lower, min(drag.upper, cueTime(drag.edgeX + point.x - drag.originX)))
+            snapX = nil
+            if model.snapping && !event.modifierFlags.contains(.command),
+                let snapped = TimelineEditor.snap(proposed, words: [], extra: drag.targets, tolerance: 8 / pps),
+                snapped >= drag.lower, snapped <= drag.upper
+            {
+                proposed = snapped
+                snapX = cueX(snapped)
+            }
+            edgeTime = proposed
+            model.moveCueEdge(anchor: drag.anchor, edge: drag.edge, to: proposed)
+            seek(mapper.cutToSource(proposed), force: false)
+            if point.x > visibleRect.maxX - 20 { scrollTo(visibleRect.minX + 12) }
+            if point.x < visibleRect.minX + 20 { scrollTo(visibleRect.minX - 12) }
+            needsDisplay = true
+        } else if let drag = dragState, let model {
             let old = drag.edge == .left ? drag.source.start : drag.source.end
             var proposed = max(drag.lower, min(drag.upper, old + (point.x - drag.originX) / pps))
             snapX = nil
@@ -635,6 +774,13 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
     }
     override func mouseUp(with event: NSEvent) {
         scrubOnDrag = false
+        if cueDrag != nil {
+            model?.endTrim()
+            seek(mapper.cutToSource(edgeTime), force: true)
+            cueDrag = nil
+            snapX = nil
+            needsDisplay = true
+        }
         if dragState != nil {
             model?.endTrim()
             seek(edgeTime, force: true)
@@ -660,24 +806,43 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
     }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
-            model?.selectedSegment = nil
-            needsDisplay = true
+            deselect(nil)
         } else if event.keyCode == 51 || event.keyCode == 117 {
-            model?.deleteSelectedClip()
+            deleteSelection(nil)
         } else {
             super.keyDown(with: event)
         }
     }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let model, !model.busy, let index = cueIndex(at: convert(event.locationInWindow, from: nil)) else {
+            return nil
+        }
+        model.selectedCue = model.cues[index].firstWord
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Delete Subtitle", action: #selector(deleteSelection(_:)), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
+    }
     /// Menu commands with plain Delete and Escape shortcuts. They are only in the responder chain
     /// while the timeline has focus, so the same keys still edit text elsewhere.
-    @objc func removeSelectedClip(_ sender: Any?) { model?.deleteSelectedClip() }
-    @objc func deselectClip(_ sender: Any?) {
+    @objc func deleteSelection(_ sender: Any?) {
+        guard let model else { return }
+        if model.selectedCue != nil { model.deleteSelectedCue() } else { model.deleteSelectedClip() }
+    }
+    @objc func deselect(_ sender: Any?) {
         model?.selectedSegment = nil
+        model?.selectedCue = nil
         needsDisplay = true
     }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        guard window?.isKeyWindow == true, let model, model.selectedSegment != nil else { return false }
-        return item.action != #selector(removeSelectedClip(_:)) || !model.busy
+        guard let model else { return false }
+        let subtitle = model.selectedCueIndex != nil
+        if item.action == #selector(deleteSelection(_:)) && item.menu?.supermenu != nil {
+            item.title = subtitle ? "Delete Selected Subtitle" : "Remove Selected Clip"
+        }
+        guard window?.isKeyWindow == true, model.selectedSegment != nil || subtitle else { return false }
+        return item.action != #selector(deleteSelection(_:)) || !model.busy
     }
     override func magnify(with event: NSEvent) {
         zoom(by: max(0.1, 1 + Double(event.magnification)), anchor: convert(event.locationInWindow, from: nil).x)

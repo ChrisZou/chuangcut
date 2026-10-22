@@ -195,3 +195,15 @@ The editor window (toolbar, split layout, sidebar, player, transcript, timeline,
 - Trimming 1 s off the start of clip 2 re-split the track at once (the cue became “AI来帮助你找到工作的工作台”) and moved later blocks left; `⌘Z` restored 32.5 s.
 - Settings › Subtitles CJK line length 16 → 8 split the blocks into shorter cues immediately; blocks too narrow for text stay plain. Restored to 16.
 - Show removed draws blocks only over kept source. Checked in light and dark appearance.
+
+## Deleting and retiming subtitles
+
+- C5245 in the app: clicking “所以为了报这一箭之仇” selects it (yellow outline, a grip at each end), moves the playhead to 00:02.8 and shows the cue in the player. Before a 0.1 ms tolerance in the cue lookup, a seek to a cue start came back a hair early and the player showed nothing.
+- Dragging the end of “我们决定以其道治其身” 0.5 s left shortened it to end at 00:05.49; the playhead followed the edge.
+- Selecting “了很多人的失业了” and pressing Delete removed its block and its player subtitle; the clips and the 32.5 s edit were unchanged.
+- `⌘Z` twice restored the cue and then the original end; `⇧⌘Z` twice reapplied both.
+- `project.json` holds the deleted words and the end shift under `subtitleEdits`. An export's SRT and its embedded `mov_text` track both lack the deleted cue, and the retimed cue ends at 00:05.491.
+- Right-click on “我们做了一款用 AI来帮助” offered Delete Subtitle, which removed it; the second half of its sentence, “你找到工作的工作台”, stayed. Dragging the start of “所以为了报这一箭之仇” into the gap moved it to 00:02.2.
+- With Show removed on, the blocks sit over kept source with the deleted cues absent, and dragging the end of “我们决定以其道治其身” there extended it to 00:05.9. Checked in light and dark appearance.
+- Five `⌘Z` returned the project to no subtitle edits; `project.json` has no `subtitleEdits` again.
+- `swift test` covers deletion keeping neighbours intact, shifted edges stopping at a neighbour, and export applying the same edits.
