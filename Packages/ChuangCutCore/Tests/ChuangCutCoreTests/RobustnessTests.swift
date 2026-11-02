@@ -61,6 +61,30 @@ final class RobustnessTests: XCTestCase {
         let mapper = TimelineMapper(duration: duration, cuts: CutDetector().detect(words: input, duration: duration))
         return input.filter { !mapper.removes($0) }.map(\.text).joined()
     }
+    func testDecisionsLayerOverTheRules() throws {
+        // 完了以后 opens a later sentence too, so the rules take the first one for an earlier take; a decision
+        // keeps it. A reworded half-sentence the rules cannot match is cut by another.
+        let input = words(["安装一下。", "完了以后，你只需要跟他说。", "完了以后直接点击。", "最后直接点击提交。"], gap: 0.8)
+        let duration = input.last!.end + 0.3
+        func kept(_ decisions: [EditDecision]) -> String {
+            let cuts = CutDetector().detect(words: input, duration: duration, decisions: decisions)
+            let mapper = TimelineMapper(duration: duration, cuts: cuts)
+            return input.filter { !mapper.removes($0) }.map(\.text).joined()
+        }
+        XCTAssertEqual(kept([]), "安装一下。你只需要跟他说。完了以后直接点击。最后直接点击提交。")
+        let connective = TimeRange(input[5].start, input[9].end)
+        let reworded = TimeRange(input[18].start - 0.1, input[26].end + 0.1)
+        XCTAssertEqual(
+            kept([EditDecision(.keep, connective, reason: "承接"), EditDecision(.cut, reworded, reason: "被后一句取代")]),
+            "安装一下。完了以后，你只需要跟他说。最后直接点击提交。")
+        // The skill's JSON form round-trips.
+        let json = #"[{"cut":[1.5,2.25],"why":"被取代"},{"keep":[3,4]}]"#
+        let decoded = try JSONDecoder().decode([EditDecision].self, from: Data(json.utf8))
+        XCTAssertEqual(
+            decoded,
+            [EditDecision(.cut, TimeRange(1.5, 2.25), reason: "被取代"), EditDecision(.keep, TimeRange(3, 4), reason: "")])
+        XCTAssertEqual(try JSONDecoder().decode([EditDecision].self, from: JSONEncoder().encode(decoded)), decoded)
+    }
     func testOnlyTheLastTakeIsKept() {
         // Several attempts at a two-sentence opening, restarted from different points.
         XCTAssertEqual(

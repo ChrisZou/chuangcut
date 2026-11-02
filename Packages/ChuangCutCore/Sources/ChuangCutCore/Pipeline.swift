@@ -48,7 +48,7 @@ public struct Pipeline {
     }
     public func analyze(
         input: URL, engine: TranscriptionEngine, language: String = "zh",
-        settings: DetectionSettings = DetectionSettings(),
+        settings: DetectionSettings = DetectionSettings(), decisions: [EditDecision]? = nil,
         cancellation: CancellationToken = CancellationToken(),
         progress: @escaping (String, Double) -> Void = { _, _ in }
     ) throws -> Project {
@@ -95,16 +95,31 @@ public struct Pipeline {
         }
         try cancellation.check()
         progress("Detecting cuts", 0.8)
-        let silences = try ffmpeg.silence(
-            input, threshold: settings.pauseThreshold, duration: media.duration, cancellation: cancellation)
-        let loudness = try ffmpeg.loudness(input, cancellation: cancellation)
-        let aligned = transcript.aligned(to: silences)
-        let cuts = CutDetector(settings: settings).detect(
-            words: aligned.words, duration: media.duration, silences: silences, sentenceEnds: aligned.sentenceEnds,
-            loudness: loudness)
-        let project = Project(source: input, media: media, transcript: aligned, candidates: cuts, silences: silences)
+        var project = Project(source: input, media: media, transcript: transcript)
+        project.decisions = decisions
+        project = try detect(project, settings: settings, cancellation: cancellation)
         try Self.save(project)
         progress("Ready", 1)
         return project
+    }
+    /// The edit of a transcribed project: the rules' cuts, then the project's decisions, then every edge fitted
+    /// to the speech. The app and the CLI both detect through here, so they always produce the same edit.
+    public func detect(
+        _ project: Project, settings: DetectionSettings, cancellation: CancellationToken = CancellationToken()
+    ) throws -> Project {
+        guard let transcript = project.transcript else { return project }
+        let ffmpeg = FFmpegRunner(tools: tools)
+        let silences = try ffmpeg.silence(
+            project.source, threshold: settings.pauseThreshold, duration: project.media.duration,
+            cancellation: cancellation)
+        let loudness = try ffmpeg.loudness(project.source, cancellation: cancellation)
+        let aligned = transcript.aligned(to: silences)
+        var result = project
+        result.transcript = aligned
+        result.silences = silences
+        result.candidates = CutDetector(settings: settings).detect(
+            words: aligned.words, duration: project.media.duration, silences: silences,
+            sentenceEnds: aligned.sentenceEnds, loudness: loudness, decisions: project.decisions ?? [])
+        return result
     }
 }

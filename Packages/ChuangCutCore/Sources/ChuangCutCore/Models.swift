@@ -92,6 +92,57 @@ public struct CutCandidate: Codable, Identifiable, Equatable, Sendable {
         isAdjusted = try c.decodeIfPresent(Bool.self, forKey: .isAdjusted)
     }
     public var range: TimeRange { TimeRange(sourceStart, sourceEnd) }
+    /// The parts of this cut outside `range`: none, itself, or one piece on each side.
+    func removing(_ range: TimeRange) -> [CutCandidate] {
+        guard range.start < sourceEnd && range.end > sourceStart else { return [self] }
+        var pieces: [CutCandidate] = []
+        if sourceStart < range.start {
+            var left = self
+            left.sourceEnd = range.start
+            pieces.append(left)
+        }
+        if sourceEnd > range.end {
+            var right = self
+            right.id = UUID()
+            right.sourceStart = range.end
+            pieces.append(right)
+        }
+        return pieces
+    }
+}
+/// An editorial judgment layered on the rules, in source seconds: cut a reworded take the rules missed, or keep
+/// what they wrongly cut. Decisions apply in order, so a later one wins where two overlap.
+public struct EditDecision: Codable, Equatable, Sendable {
+    public enum Action: String, Codable, Sendable { case cut, keep }
+    public var action: Action
+    public var range: TimeRange
+    public var reason: String
+    public init(_ action: Action, _ range: TimeRange, reason: String) {
+        self.action = action
+        self.range = range
+        self.reason = reason
+    }
+    /// The talk-cut skill writes `{"cut": [start, end], "why": "…"}` or `{"keep": [start, end], "why": "…"}`.
+    enum CodingKeys: String, CodingKey { case cut, keep, why }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let bounds: [Double]
+        if let cut = try c.decodeIfPresent([Double].self, forKey: .cut) {
+            (action, bounds) = (.cut, cut)
+        } else {
+            (action, bounds) = (.keep, try c.decode([Double].self, forKey: .keep))
+        }
+        guard bounds.count == 2 else {
+            throw DecodingError.dataCorruptedError(forKey: .cut, in: c, debugDescription: "A range is [start, end]")
+        }
+        range = TimeRange(bounds[0], bounds[1])
+        reason = try c.decodeIfPresent(String.self, forKey: .why) ?? ""
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode([range.start, range.end], forKey: action == .cut ? .cut : .keep)
+        try c.encode(reason, forKey: .why)
+    }
 }
 public struct DetectionSettings: Codable, Sendable {
     public var pauseThreshold: Double = 0.6
@@ -197,6 +248,8 @@ public struct Project: Codable, Sendable {
     public var silences: [TimeRange]
     public var splitPoints: [Double]? = nil
     public var subtitleEdits: SubtitleEdits? = nil
+    /// Editorial judgments applied on top of the rule-based cuts each time cuts are detected.
+    public var decisions: [EditDecision]? = nil
     public init(
         source: URL, media: MediaInfo, transcript: Transcript? = nil, candidates: [CutCandidate] = [],
         silences: [TimeRange] = []

@@ -29,10 +29,12 @@ public struct CutDetector {
         return result.filter { $0.contains { !$0.isPunctuation } }
     }
     /// `sentenceEnds` holds the last word of each Whisper segment; segments are sentence-like even
-    /// when Whisper emits no sentence-final punctuation.
+    /// when Whisper emits no sentence-final punctuation. `decisions` are editorial judgments made on top of the
+    /// rules (a reworded take the rules cannot see, a connective they took for a retake); they apply before the
+    /// edges are fitted to the speech, so their cuts get the same edges and rhythm as the rules' own.
     public func detect(
         words: [Word], duration: Double, silences: [TimeRange] = [], sentenceEnds: Set<UUID> = [],
-        loudness: Loudness? = nil
+        loudness: Loudness? = nil, decisions: [EditDecision] = []
     ) -> [CutCandidate] {
         guard !words.isEmpty else { return [] }
         var candidates: [CutCandidate] = []
@@ -100,7 +102,21 @@ public struct CutDetector {
                 }
             }
         }
-        candidates = candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
+        candidates = candidates.filter { $0.sourceEnd > $0.sourceStart }
+        for decision in decisions {
+            let range = TimeRange(max(0, decision.range.start), min(duration, decision.range.end))
+            guard range.end > range.start else { continue }
+            switch decision.action {
+            case .cut:
+                let text = words.filter { range.contains(($0.start + $0.end) / 2) }.map(\.text).joined()
+                candidates.append(
+                    CutCandidate(kind: .retake, start: range.start, end: range.end, text: text, reason: decision.reason)
+                )
+            case .keep:
+                candidates = candidates.flatMap { $0.removing(range) }
+            }
+        }
+        candidates.sort { $0.sourceStart < $1.sourceStart }
         fitKeptStretches(
             &candidates, spoken: spoken, gaps: pauseTargets(words, sentenceEnds: sentenceEnds), duration: duration,
             loudness: loudness)
@@ -147,22 +163,30 @@ public struct CutDetector {
             if !before.isEmpty {
                 // Never reach back into the removed word before the stretch, and keep the first word's
                 // midpoint, which decides whether the word counts as kept.
-                let lower = max(
+                var lower = max(
                     firstIndex > 0 ? spoken[firstIndex - 1].end : 0, before.map { candidates[$0].sourceStart }.max()!)
-                if let onset = loudness.onset(from: max(lower, first.start - 0.25), to: first.end + 0.1) {
+                var from = max(lower, first.start - 0.25)
+                // Timestamps can end a removed word before its sound does. Sound still running where the search
+                // would begin belongs to the removed word, so the clip may not start before the cut ends.
+                if from < stretch.start && loudness.isAudible(at: from) {
+                    (lower, from) = (stretch.start, stretch.start)
+                }
+                if let onset = loudness.onset(from: from, to: first.end + 0.1) {
                     let start = min(mids[firstIndex], max(lower, onset - settings.leadIn))
                     for i in before { candidates[i].sourceEnd = start }
                 }
             }
             if !after.isEmpty {
-                let upper = min(
+                var upper = min(
                     lastIndex + 1 < spoken.count ? spoken[lastIndex + 1].start : duration,
                     after.map { candidates[$0].sourceEnd }.min()!)
-                // Stop short of the next word: its timestamp can trail its first audible frame. Look back before
-                // the last word too: its timestamps can trail its sound, which may have stopped before they begin.
-                if let offset = loudness.offset(
-                    from: max(stretch.start, last.start - 0.5), to: max(last.end, min(upper - 0.1, last.end + 0.35)))
-                {
+                // Stop short of the next word: its timestamp can trail its first audible frame.
+                var to = max(last.end, min(upper - 0.1, last.end + 0.35))
+                // Sound where the search would stop, past the cut, is the removed word after the stretch.
+                if to > stretch.end && loudness.isAudible(at: to) { (upper, to) = (stretch.end, stretch.end) }
+                // Look back before the last word too: its timestamps can trail its sound, which may have stopped
+                // before they begin.
+                if let offset = loudness.offset(from: max(stretch.start, last.start - 0.5), to: to) {
                     // The next clip brings `leadIn` of room sound of its own.
                     let tail = max(0, (gaps[last.id] ?? settings.wordGap) - settings.leadIn)
                     let end = max(mids[lastIndex], min(upper, offset + tail))

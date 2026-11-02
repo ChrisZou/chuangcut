@@ -406,7 +406,7 @@ import SwiftUI
                 let analyzed = try await Task.detached(priority: .userInitiated) { [weak self] in
                     try Pipeline(tools: tools).analyze(
                         input: project.source, engine: engine, language: language, settings: detection,
-                        cancellation: token
+                        decisions: project.decisions, cancellation: token
                     ) { stage, progress in
                         Task { @MainActor in
                             self?.stage = stage
@@ -429,7 +429,7 @@ import SwiftUI
         }
     }
     func detect() {
-        guard !busy, let project, let transcript = project.transcript else { return }
+        guard !busy, let project, project.transcript != nil else { return }
         recordUndo("Detect cuts")
         // Recompute acoustic silences when the threshold changes.
         let settings = AppSettings.shared.detection
@@ -441,23 +441,11 @@ import SwiftUI
         Task {
             do {
                 let result = try await Task.detached {
-                    let runner = FFmpegRunner(tools: tools)
-                    let silences = try runner.silence(
-                        project.source, threshold: settings.pauseThreshold, duration: project.media.duration,
-                        cancellation: token)
-                    let loudness = try runner.loudness(project.source, cancellation: token)
-                    let aligned = transcript.aligned(to: silences)
-                    return (
-                        silences,
-                        CutDetector(settings: settings).detect(
-                            words: aligned.words, duration: project.media.duration, silences: silences,
-                            sentenceEnds: aligned.sentenceEnds, loudness: loudness),
-                        aligned
-                    )
+                    try Pipeline(tools: tools).detect(project, settings: settings, cancellation: token)
                 }.value
-                self.project?.transcript = result.2
-                self.project?.silences = result.0
-                self.project?.candidates = Self.keepingManualCuts(from: project.candidates, in: result.1)
+                self.project?.transcript = result.transcript
+                self.project?.silences = result.silences
+                self.project?.candidates = Self.keepingManualCuts(from: project.candidates, in: result.candidates)
                 changed()
                 stage = ""
             } catch { finish(error) }

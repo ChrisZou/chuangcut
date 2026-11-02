@@ -7,7 +7,7 @@ import Foundation
             let args = Array(CommandLine.arguments.dropFirst())
             guard let path = args.first, !path.hasPrefix("--") else {
                 print(
-                    "Usage: chuangcut-cli <input.mp4> --out <dir> [--model PATH | --engine doubao] [--lang zh|auto] [--pause 0.6] [--burn | --no-export] [--trim INDEX:left|right:SECONDS]…"
+                    "Usage: chuangcut-cli <input video or audio> --out <dir> [--model PATH | --engine doubao] [--lang zh|auto] [--pause 0.6] [--decisions FILE] [--burn | --no-export] [--trim INDEX:left|right:SECONDS]…"
                 )
                 return
             }
@@ -57,9 +57,17 @@ import Foundation
             case .whisper(let model): print("Model: \(model.lastPathComponent)")
             case .doubao: print("Engine: Doubao Seed-ASR")
             }
+            // The project is the one the app opens for this file: decisions, manual cuts, splits and subtitle
+            // edits made earlier, here or in the app, carry over.
+            let saved = try Pipeline.restore(source)
+            let decisions = try value("--decisions").map {
+                try JSONDecoder().decode(
+                    [EditDecision].self,
+                    from: Data(contentsOf: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)))
+            }
             var project = try Pipeline().analyze(
                 input: source, engine: engine, language: value("--lang") ?? "zh", settings: settings,
-                cancellation: cancellation
+                decisions: decisions ?? saved?.decisions, cancellation: cancellation
             ) { stage, percent in
                 if percent == 1 || percent == 0.02 || percent == 0.8 { print("\(stage) \(Int(percent * 100))%") }
             }
@@ -68,6 +76,13 @@ import Foundation
                 for (i, range) in project.mapper.keptRanges.enumerated() {
                     print(String(format: "  %d: %.3f–%.3f", i, range.start, range.end))
                 }
+            }
+            if let saved {
+                project.candidates = (project.candidates + saved.candidates.filter { $0.kind == .manual }).sorted {
+                    $0.sourceStart < $1.sourceStart
+                }
+                project.splitPoints = saved.splitPoints
+                project.subtitleEdits = saved.subtitleEdits
             }
             printSegments("Kept segments before trims:")
             for index in args.indices where args[index] == "--trim" {
@@ -81,16 +96,19 @@ import Foundation
                     newSourceTime: trim.sourceTime, cuts: project.candidates)
             }
             printSegments("Kept segments after trims:")
+            try Pipeline.save(project)
             try JSONFile.write(project, to: destination.appendingPathComponent("project.json"))
             try JSONFile.write(project.transcript!, to: destination.appendingPathComponent("transcript.json"))
             try JSONFile.write(project.candidates, to: destination.appendingPathComponent("cuts.json"))
             var options = ExportOptions()
             if !args.contains("--no-export") {
                 try FFmpegRunner().export(
-                    project: project, to: destination.appendingPathComponent("cut.mp4"), options: options,
+                    project: project,
+                    to: destination.appendingPathComponent(project.media.isAudioOnly ? "cut.m4a" : "cut.mp4"),
+                    options: options,
                     cancellation: cancellation
                 ) { _ in }
-                if args.contains("--burn") {
+                if args.contains("--burn") && !project.media.isAudioOnly {
                     options.burnSubtitles = true
                     try FFmpegRunner().export(
                         project: project, to: destination.appendingPathComponent("cut_burned.mp4"), options: options,

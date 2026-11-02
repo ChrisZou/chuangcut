@@ -18,6 +18,11 @@ public struct Loudness: Sendable {
     var clear: Float { min(max(floor + 20, -50), -25) }
     var soft: Float { clear - 12 }
     private func index(_ time: Double) -> Int { min(levels.count, max(0, Int((time / Self.frame).rounded()))) }
+    /// Whether anything louder than the room, even a soft attack or a fading tail, sounds at `time`.
+    func isAudible(at time: Double) -> Bool {
+        let i = index(time)
+        return i < levels.count && levels[i] >= soft
+    }
     /// Where the first clearly audible sound in `lower..<upper` begins, including the quieter attack before it.
     func onset(from lower: Double, to upper: Double) -> Double? {
         let first = index(lower)
