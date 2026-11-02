@@ -134,7 +134,31 @@ final class RobustnessTests: XCTestCase {
         let kept = TimelineMapper(duration: 4, cuts: cuts).keptRanges
         XCTAssertEqual(kept.count, 1)
         XCTAssertEqual(kept[0].start, 1.94, accuracy: 0.001)
-        XCTAssertEqual(kept[0].end, 2.60, accuracy: 0.001)
+        // No punctuation follows the word: 0.15 s is heard, 0.03 s of it from the next clip's lead-in.
+        XCTAssertEqual(kept[0].end, 2.62, accuracy: 0.001)
+    }
+    func testPausesFollowTheirPunctuation() {
+        // 我们，⏸0.5s 开始。⏸1.2s 好 — the comma pause stays below the pause threshold, so it is inside a kept clip.
+        var levels = [Float](repeating: -70, count: 450)
+        for range in [100..<140, 190..<230, 350..<390] { for i in range { levels[i] = -20 } }
+        let input = [
+            Word(text: "我", start: 1.0, end: 1.2), Word(text: "们", start: 1.2, end: 1.4),
+            Word(text: "，", start: 1.4, end: 1.4), Word(text: "开", start: 1.9, end: 2.1),
+            Word(text: "始", start: 2.1, end: 2.3), Word(text: "。", start: 2.3, end: 2.3),
+            Word(text: "好", start: 3.5, end: 3.9),
+        ]
+        let cuts = CutDetector().detect(
+            words: input, duration: 4.5, silences: [TimeRange(0, 1.0), TimeRange(2.3, 3.5), TimeRange(3.9, 4.5)],
+            loudness: Loudness(levels: levels))
+        let kept = TimelineMapper(duration: 4.5, cuts: cuts).keptRanges
+        XCTAssertEqual(kept.count, 3)
+        // The comma pause is heard for 0.2 s: 0.17 s after 们 and the 0.03 s lead-in before 开.
+        XCTAssertEqual(kept[0].end, 1.57, accuracy: 0.001)
+        XCTAssertEqual(kept[1].start, 1.87, accuracy: 0.001)
+        // The join after the sentence is heard for 0.3 s.
+        XCTAssertEqual(kept[1].end, 2.57, accuracy: 0.001)
+        XCTAssertEqual(kept[2].start, 3.47, accuracy: 0.001)
+        XCTAssertTrue(cuts.contains { $0.kind == .pause && $0.reason.hasPrefix("Pause shortened") })
     }
     func testNoWordlessSliverIsLeftBetweenCuts() {
         // A breath between the first take and the pause has no words; it goes with the take.

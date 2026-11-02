@@ -97,10 +97,14 @@ public struct DetectionSettings: Codable, Sendable {
     public var pauseThreshold: Double = 0.6
     /// Silence kept on each side of a pause cut when no loudness is available.
     public var padding: Double = 0.10
-    /// How much of the room's sound a kept stretch keeps before its first word becomes audible, and after its
-    /// last word stops being clearly audible.
+    /// How much of the room's sound a kept stretch keeps before its first word becomes audible.
     public var leadIn: Double = 0.03
-    public var tail: Double = 0.10
+    /// The silence heard after a word, by the punctuation that follows it: after 。！？ or a transcript segment
+    /// end, after ，、；：, and between other words. A clip ends so that the join sounds this long, and a longer
+    /// pause inside a kept clip is shortened to it, so every pause follows the same rhythm.
+    public var sentenceGap: Double = 0.30
+    public var commaGap: Double = 0.20
+    public var wordGap: Double = 0.15
     public var fillers: [String] = ["嗯", "啊", "呃", "额", "那个", "就是说", "然后呢", "这个", "um", "uh", "er", "ah"]
     public init() {}
 }

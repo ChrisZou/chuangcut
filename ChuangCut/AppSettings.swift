@@ -16,7 +16,9 @@ enum Transcriber: String, CaseIterable {
     @Published var language: String { didSet { defaults.set(language, forKey: "language") } }
     @Published var pause: Double { didSet { defaults.set(pause, forKey: "pause") } }
     @Published var leadIn: Double { didSet { defaults.set(leadIn, forKey: "leadIn") } }
-    @Published var tail: Double { didSet { defaults.set(tail, forKey: "tail") } }
+    @Published var sentenceGap: Double { didSet { defaults.set(sentenceGap, forKey: "sentenceGap") } }
+    @Published var commaGap: Double { didSet { defaults.set(commaGap, forKey: "commaGap") } }
+    @Published var wordGap: Double { didSet { defaults.set(wordGap, forKey: "wordGap") } }
     @Published var fillerText: String { didSet { defaults.set(fillerText, forKey: "fillers") } }
     @Published var style: SubtitleStyle {
         didSet { if let data = try? JSONEncoder().encode(style) { defaults.set(data, forKey: "subtitleStyle") } }
@@ -36,7 +38,9 @@ enum Transcriber: String, CaseIterable {
         language = d.string(forKey: "language") ?? "zh"
         pause = d.object(forKey: "pause") as? Double ?? 0.6
         leadIn = d.object(forKey: "leadIn") as? Double ?? DetectionSettings().leadIn
-        tail = d.object(forKey: "tail") as? Double ?? DetectionSettings().tail
+        sentenceGap = d.object(forKey: "sentenceGap") as? Double ?? DetectionSettings().sentenceGap
+        commaGap = d.object(forKey: "commaGap") as? Double ?? DetectionSettings().commaGap
+        wordGap = d.object(forKey: "wordGap") as? Double ?? DetectionSettings().wordGap
         fillerText = d.string(forKey: "fillers") ?? DetectionSettings().fillers.joined(separator: ", ")
         style =
             d.data(forKey: "subtitleStyle").flatMap { try? JSONDecoder().decode(SubtitleStyle.self, from: $0) }
@@ -69,7 +73,9 @@ enum Transcriber: String, CaseIterable {
         var value = DetectionSettings()
         value.pauseThreshold = max(0.1, pause)
         value.leadIn = max(0, leadIn)
-        value.tail = max(0, tail)
+        value.sentenceGap = max(0, sentenceGap)
+        value.commaGap = max(0, commaGap)
+        value.wordGap = max(0, wordGap)
         value.fillers = fillerText.components(separatedBy: CharacterSet(charactersIn: ",，\n")).map {
             $0.trimmingCharacters(in: .whitespaces)
         }.filter { !$0.isEmpty }
