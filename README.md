@@ -53,7 +53,7 @@ To test dragging an **unselected** clip edge, launch with `--select-segment 0 --
 
 Settings › Transcription picks the engine. **Doubao Seed-ASR** (default) sends a mono 16 kHz MP3 of the audio to Volcengine's recording-file recognition flash endpoint (`volc.seedasr.auc`) and gets the whole transcript back in one response: about 4 s for 5 minutes and 12 s for 30 minutes of audio. It writes down what was said, restarts and repeated phrases included, with its own timestamp for every character; Whisper tidies speech into subtitles and drops most of them, so retake detection can only find takes Doubao reports. It needs an API key with 录音文件识别大模型 enabled; an optional hotword table ID (Volcengine console › 热词管理) improves names and product terms. The key is stored in the app's preferences. **Whisper** runs offline with a local ggml model, configured below.
 
-The default language is Chinese. Auto, English, Japanese, Korean, French, German, and Spanish are available. Pause threshold defaults to 0.6 s. Each kept clip starts 0.03 s before its first word becomes audible and ends 0.06 s after its last word fades (Settings › Detection › Before speech / After speech).
+The default language is Chinese. Auto, English, Japanese, Korean, French, German, and Spanish are available. Pause threshold defaults to 0.6 s. Each kept clip starts 0.03 s before its first word becomes audible and ends 0.1 s after its last word fades (Settings › Detection › Before speech / After speech).
 
 Settings persist model/tool paths, language, fillers, thresholds, and subtitle style. The default tool lookup checks `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, then `which`; a GUI process does not depend on a shell's PATH.
 

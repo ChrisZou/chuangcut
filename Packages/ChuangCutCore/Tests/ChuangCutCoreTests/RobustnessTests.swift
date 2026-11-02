@@ -134,7 +134,7 @@ final class RobustnessTests: XCTestCase {
         let kept = TimelineMapper(duration: 4, cuts: cuts).keptRanges
         XCTAssertEqual(kept.count, 1)
         XCTAssertEqual(kept[0].start, 1.94, accuracy: 0.001)
-        XCTAssertEqual(kept[0].end, 2.56, accuracy: 0.001)
+        XCTAssertEqual(kept[0].end, 2.60, accuracy: 0.001)
     }
     func testNoWordlessSliverIsLeftBetweenCuts() {
         // A breath between the first take and the pause has no words; it goes with the take.
