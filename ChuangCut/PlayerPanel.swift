@@ -18,17 +18,17 @@ final class PlayerPanel: NSView {
 
     init(model: EditorModel) {
         self.model = model
-        back = NSButton(image: .symbol("gobackward.5", "Back 5 seconds", size: 15), target: nil, action: nil)
-        play = NSButton(image: .symbol("play.fill", "Play", size: 16, weight: .semibold), target: nil, action: nil)
-        forward = NSButton(image: .symbol("goforward.5", "Forward 5 seconds", size: 15), target: nil, action: nil)
-        reveal = NSButton(image: .symbol("checkmark.circle.fill", "Reveal export"), target: nil, action: nil)
+        back = NSButton(image: .symbol("gobackward.5", L10n.Player.back5, size: 15), target: nil, action: nil)
+        play = NSButton(image: .symbol("play.fill", L10n.Player.play, size: 16, weight: .semibold), target: nil, action: nil)
+        forward = NSButton(image: .symbol("goforward.5", L10n.Player.forward5, size: 15), target: nil, action: nil)
+        reveal = NSButton(image: .symbol("checkmark.circle.fill", L10n.Player.revealExport), target: nil, action: nil)
         super.init(frame: .zero)
         stage.playerView.player = model.player
         for (button, action, help) in [
-            (back, #selector(skipBackward), "Back 5 seconds (←)"),
-            (play, #selector(togglePlayback), "Play / Pause (Space)"),
-            (forward, #selector(skipForward), "Forward 5 seconds (→)"),
-            (reveal, #selector(revealExport), "Reveal export"),
+            (back, #selector(skipBackward), L10n.Player.back5Help),
+            (play, #selector(togglePlayback), L10n.Player.playPause),
+            (forward, #selector(skipForward), L10n.Player.forward5Help),
+            (reveal, #selector(revealExport), L10n.Player.revealExport),
         ] {
             button.target = self
             button.action = action
@@ -47,9 +47,9 @@ final class PlayerPanel: NSView {
         previewSwitch.controlSize = .mini
         previewSwitch.target = self
         previewSwitch.action = #selector(togglePreview)
-        previewSwitch.setAccessibilityLabel("Preview cuts")
+        previewSwitch.setAccessibilityLabel(L10n.Player.previewCuts)
         let previewLabel = NSTextField.label(10)
-        previewLabel.stringValue = "Preview cuts"
+        previewLabel.stringValue = L10n.Player.previewCuts
         let options = NSStackView(views: [previewLabel, previewSwitch, reveal])
         options.spacing = 6
 
@@ -96,13 +96,13 @@ final class PlayerPanel: NSView {
         let playhead = model.playhead
         editedTime.stringValue = "\(timeLabel(mapper.sourceToCut(playhead))) / \(timeLabel(mapper.editedDuration))"
         sourceTime.stringValue =
-            "Source  \(timeLabel(playhead)) / \(timeLabel(model.project?.media.duration ?? 0))"
+            "\(L10n.Player.source)  \(timeLabel(playhead)) / \(timeLabel(model.project?.media.duration ?? 0))"
     }
     private func updateControls() {
         let playing = model.isPlaying
         play.image = .symbol(
-            playing ? "pause.fill" : "play.fill", playing ? "Pause" : "Play", size: 16, weight: .semibold)
-        play.setAccessibilityLabel(playing ? "Pause" : "Play")
+            playing ? "pause.fill" : "play.fill", playing ? L10n.Player.pause : L10n.Player.play, size: 16, weight: .semibold)
+        play.setAccessibilityLabel(playing ? L10n.Player.pause : L10n.Player.play)
         for button in [back, play, forward] { button.isEnabled = !model.busy }
         previewSwitch.state = model.previewCuts ? .on : .off
         reveal.isHidden = model.exportedURL == nil

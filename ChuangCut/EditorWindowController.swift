@@ -133,10 +133,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
     private func updateTitle() {
         guard let window else { return }
-        let title = model.project?.source.lastPathComponent ?? "ChuangCut"
-        let subtitle = model.project == nil ? "" : "\(timeLabel(model.mapper.editedDuration)) edited"
-        if window.title != title { window.title = title }
+        let packageName = model.projectPackageURL?.deletingPathExtension().lastPathComponent
+        let title = packageName ?? model.project?.source.lastPathComponent ?? L10n.App.name
+        let subtitle = model.project == nil ? "" : String(format: L10n.Window.editedSuffix, timeLabel(model.mapper.editedDuration))
+        let shown = (model.isDirty ? L10n.Window.dirtyMark : "") + title
+        if window.title != shown { window.title = shown }
         if window.subtitle != subtitle { window.subtitle = subtitle }
+        window.isDocumentEdited = model.isDirty
     }
     private func updateToolbar() {
         tools[.importVideo]?.isEnabled = !model.busy
@@ -164,9 +167,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         guard !showingError, let window else { return }
         showingError = true
         let alert = NSAlert()
-        alert.messageText = "ChuangCut"
+        alert.messageText = L10n.App.name
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.Alert.ok)
         alert.beginSheetModal(for: window) { [weak self] _ in
             self?.showingError = false
             self?.model.error = nil
@@ -176,17 +179,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     // MARK: Commands
 
     @objc func importVideo(_ sender: Any?) { model.chooseFile() }
+    @objc func openProject(_ sender: Any?) { model.chooseProject() }
+    @objc func saveProject(_ sender: Any?) { model.saveProject() }
     /// Re-transcribing replaces detected cuts, so ask first when there is existing analysis.
     @objc func transcribe(_ sender: Any?) {
         guard model.hasProject, !model.busy else { return }
         guard model.project?.transcript != nil, let window else { return model.transcribe() }
         let alert = NSAlert()
-        alert.messageText = "Transcribe again?"
-        alert.informativeText =
-            "Detected cuts and their trims will be replaced by a new analysis. Manual cuts and splits are kept, "
-            + "and you can undo with ⌘Z."
-        alert.addButton(withTitle: "Transcribe")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.Alert.transcribeAgain
+        alert.informativeText = L10n.Alert.transcribeAgainBody
+        alert.addButton(withTitle: L10n.Alert.transcribe)
+        alert.addButton(withTitle: L10n.Alert.cancel)
         alert.beginSheetModal(for: window) { [weak self] response in
             if response == .alertFirstButtonReturn { self?.model.transcribe() }
         }
@@ -208,10 +211,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         guard window?.isKeyWindow == true else { return false }
         switch item.action {
         case #selector(togglePlayback(_:)):
-            item.title = model.isPlaying ? "Pause" : "Play"
+            item.title = model.isPlaying ? L10n.Menu.pause : L10n.Menu.play
             return model.hasProject && !model.busy
         case #selector(skipBackward(_:)), #selector(skipForward(_:)): return model.hasProject
-        case #selector(importVideo(_:)): return !model.busy
+        case #selector(importVideo(_:)), #selector(openProject(_:)): return !model.busy
+        case #selector(saveProject(_:)): return model.hasProject && !model.busy
         case #selector(detect(_:)): return model.project?.transcript != nil && !model.busy
         case #selector(togglePreview(_:)):
             item.state = model.previewCuts ? .on : .off
@@ -236,8 +240,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             button.toolTip = help
             tools[id] = button
         }
-        tool(.importVideo, "Import", "plus", #selector(importVideo(_:)), help: "Open a video or audio file (⌘O)")
-        tool(.export, "Export", "square.and.arrow.up", #selector(showExport(_:)), help: "Export the edit (⇧⌘E)")
+        tool(.importVideo, L10n.Toolbar.importMedia, "plus", #selector(importVideo(_:)), help: L10n.Toolbar.importHelp)
+        tool(.export, L10n.Toolbar.export, "square.and.arrow.up", #selector(showExport(_:)), help: L10n.Toolbar.exportHelp)
         let toolbar = NSToolbar(identifier: "EditorToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -316,8 +320,8 @@ private final class EmptyStateView: NSView {
         let icon = NSImageView(image: .symbol("film.stack", nil, size: 52, weight: .light))
         icon.contentTintColor = .controlAccentColor
         let title = NSTextField.label(17, weight: .medium)
-        title.stringValue = "Drop a video or audio file, or press ⌘O"
-        let button = NSButton(title: "Import", target: self, action: #selector(importVideo))
+        title.stringValue = L10n.Empty.dropHint
+        let button = NSButton(title: L10n.Empty.importButton, target: self, action: #selector(importVideo))
         button.controlSize = .large
         button.keyEquivalent = "\r"
         let stack = NSStackView(views: [icon, title, button, status])
@@ -339,12 +343,12 @@ private final class EmptyStateView: NSView {
             check.contentTintColor = .secondaryLabelColor
             let label = NSTextField.label(10, color: .secondaryLabelColor)
             switch engine {
-            case .doubao: label.stringValue = "Transcription: Doubao Seed-ASR"
-            case .whisper(let model): label.stringValue = "Model: " + model.deletingPathExtension().lastPathComponent
+            case .doubao: label.stringValue = L10n.Empty.transcriptionDoubao
+            case .whisper(let model): label.stringValue = L10n.Empty.modelPrefix + model.deletingPathExtension().lastPathComponent
             }
             status.setViews([check, label], in: .center)
         } else {
-            let title = settings.transcriber == .doubao ? "No Doubao API key — Settings" : "No model — Download"
+            let title = settings.transcriber == .doubao ? L10n.Empty.noDoubaoKey : L10n.Empty.noModel
             let link = NSButton(title: title, target: self, action: #selector(openSettings))
             link.isBordered = false
             link.contentTintColor = .linkColor
@@ -380,9 +384,9 @@ private final class ProcessingBar: NSVisualEffectView {
         bar.minValue = 0
         bar.maxValue = 1
         let cancel = NSButton(
-            image: .symbol("xmark.circle.fill", "Cancel processing"), target: self, action: #selector(cancel))
+            image: .symbol("xmark.circle.fill", L10n.Processing.cancelAccessibility), target: self, action: #selector(cancel))
         cancel.isBordered = false
-        cancel.toolTip = "Cancel"
+        cancel.toolTip = L10n.Processing.cancel
         let spacer = NSView()
         let stack = NSStackView(views: [spinner, label, bar, spacer, cancel])
         stack.spacing = 14

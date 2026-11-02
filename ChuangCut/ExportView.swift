@@ -11,39 +11,39 @@ struct ExportView: View {
     var body: some View {
         VStack(spacing: 16) {
             HStack {
-                Text("Export").font(.title2.weight(.semibold))
+                Text(L10n.Export.title).font(.title2.weight(.semibold))
                 Spacer()
                 Text(String(format: "%.1f s", model.mapper.editedDuration)).foregroundStyle(.secondary)
                     .monospacedDigit()
             }
             Form {
                 HStack {
-                    Text(output?.path ?? "Choose output file").lineLimit(1).truncationMode(.middle).foregroundStyle(
+                    Text(output?.path ?? L10n.Export.chooseOutput).lineLimit(1).truncationMode(.middle).foregroundStyle(
                         output == nil ? .secondary : .primary)
                     Spacer()
                     Button {
                         chooseOutput()
                     } label: {
                         Image(systemName: "folder")
-                    }.help("Choose output file").accessibilityLabel("Choose output file")
+                    }.help(L10n.Export.chooseOutput).accessibilityLabel(L10n.Export.chooseOutput)
                 }
                 if !audioOnly {
-                    Picker("Quality", selection: $options.quality) {
-                        Text("Compact · Hardware").tag(VideoQuality.compact)
-                        Text("Balanced · Hardware").tag(VideoQuality.balanced)
-                        Text("High · Hardware").tag(VideoQuality.high)
-                        Text("H.264 · CRF 20").tag(VideoQuality.software)
+                    Picker(L10n.Export.quality, selection: $options.quality) {
+                        Text(L10n.Export.compact).tag(VideoQuality.compact)
+                        Text(L10n.Export.balanced).tag(VideoQuality.balanced)
+                        Text(L10n.Export.high).tag(VideoQuality.high)
+                        Text(L10n.Export.software).tag(VideoQuality.software)
                     }
-                    Toggle("Subtitle track", isOn: $options.subtitleTrack)
-                        .help("Embed the subtitles as a track players can turn on and off, without burning them in")
+                    Toggle(L10n.Export.subtitleTrack, isOn: $options.subtitleTrack)
+                        .help(L10n.Export.subtitleTrackHelp)
                 }
-                Toggle("SRT file", isOn: $options.includeSRT)
-                if !audioOnly { Toggle("Burn subtitles", isOn: $options.burnSubtitles) }
+                Toggle(L10n.Export.srt, isOn: $options.includeSRT)
+                if !audioOnly { Toggle(L10n.Export.burn, isOn: $options.burnSubtitles) }
                 Button {
                     withAnimation { styleExpanded.toggle() }
                 } label: {
                     HStack {
-                        Text("Subtitle style")
+                        Text(L10n.Export.style)
                         Spacer()
                         Image(systemName: styleExpanded ? "chevron.up" : "chevron.down")
                     }.contentShape(Rectangle())
@@ -52,9 +52,9 @@ struct ExportView: View {
             }.formStyle(.grouped)
             SubtitlePreview(model: model, thumbnails: model.thumbnails, style: options.style)
             HStack {
-                Button("Cancel") { model.showExport = false }.keyboardShortcut(.cancelAction)
+                Button(L10n.Export.cancel) { model.showExport = false }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Export") {
+                Button(L10n.Export.export) {
                     if output == nil { chooseOutput() }
                     if let output {
                         model.export(to: output, options: options)

@@ -20,7 +20,10 @@ import SwiftUI
         editor.showWindow(nil)
         model.launchArguments()
     }
-    func application(_ application: NSApplication, open urls: [URL]) { if let url = urls.first { model.open(url) } }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.first else { return }
+        if url.pathExtension == ProjectPackage.pathExtension { model.openProject(url) } else { model.open(url) }
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) {
         model.cancel()
@@ -38,9 +41,9 @@ import SwiftUI
                 item.image = .symbol(symbol, label)
                 tabs.addTabViewItem(item)
             }
-            tab("Transcription", "text.bubble", TranscriptionSettingsView())
-            tab("Detection", "waveform", DetectionSettingsView())
-            tab("Subtitles", "captions.bubble", SubtitleSettingsView(model: model))
+            tab(L10n.Settings.transcription, "text.bubble", TranscriptionSettingsView())
+            tab(L10n.Settings.detection, "waveform", DetectionSettingsView())
+            tab(L10n.Settings.subtitles, "captions.bubble", SubtitleSettingsView(model: model))
             let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
@@ -69,66 +72,68 @@ import SwiftUI
             return item
         }
         func arrow(_ key: Int) -> String { String(Character(UnicodeScalar(UInt32(key))!)) }
-        let services = item("Services", nil)
-        services.submenu = NSMenu(title: "Services")
+        let services = item(L10n.App.services, nil)
+        services.submenu = NSMenu(title: L10n.App.services)
         NSApp.servicesMenu = services.submenu
         menu(
-            "ChuangCut",
+            L10n.App.name,
             [
-                item("About ChuangCut", #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
-                item("Settings…", #selector(showSettings(_:)), ","), .separator(), services, .separator(),
-                item("Hide ChuangCut", #selector(NSApplication.hide(_:)), "h"),
-                item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
-                item("Show All", #selector(NSApplication.unhideAllApplications(_:))), .separator(),
-                item("Quit ChuangCut", #selector(NSApplication.terminate(_:)), "q"),
+                item(L10n.App.about, #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
+                item(L10n.App.settings, #selector(showSettings(_:)), ","), .separator(), services, .separator(),
+                item(L10n.App.hide, #selector(NSApplication.hide(_:)), "h"),
+                item(L10n.App.hideOthers, #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+                item(L10n.App.showAll, #selector(NSApplication.unhideAllApplications(_:))), .separator(),
+                item(L10n.App.quit, #selector(NSApplication.terminate(_:)), "q"),
             ])
         menu(
-            "File",
+            L10n.Menu.file,
             [
-                item("Open…", #selector(EditorWindowController.importVideo(_:)), "o"),
-                item("Export…", #selector(EditorWindowController.showExport(_:)), "e", [.command, .shift]),
-                .separator(), item("Close", #selector(NSWindow.performClose(_:)), "w"),
+                item(L10n.Menu.openMedia, #selector(EditorWindowController.importVideo(_:)), "o"),
+                item(L10n.Menu.openProject, #selector(EditorWindowController.openProject(_:)), "o", [.command, .shift]),
+                item(L10n.Menu.saveProject, #selector(EditorWindowController.saveProject(_:)), "s"),
+                item(L10n.Menu.export, #selector(EditorWindowController.showExport(_:)), "e", [.command, .shift]),
+                .separator(), item(L10n.Menu.close, #selector(NSWindow.performClose(_:)), "w"),
             ])
         // undo:/redo: reach the editor window's undo manager, or a text field's own in other windows.
         menu(
-            "Edit",
+            L10n.Menu.edit,
             [
-                item("Undo", Selector(("undo:")), "z"), item("Redo", Selector(("redo:")), "z", [.command, .shift]),
-                .separator(), item("Cut", #selector(NSText.cut(_:)), "x"),
-                item("Copy", #selector(NSText.copy(_:)), "c"), item("Paste", #selector(NSText.paste(_:)), "v"),
-                item("Select All", #selector(NSText.selectAll(_:)), "a"),
+                item(L10n.Menu.undo, Selector(("undo:")), "z"), item(L10n.Menu.redo, Selector(("redo:")), "z", [.command, .shift]),
+                .separator(), item(L10n.Menu.cut, #selector(NSText.cut(_:)), "x"),
+                item(L10n.Menu.copy, #selector(NSText.copy(_:)), "c"), item(L10n.Menu.paste, #selector(NSText.paste(_:)), "v"),
+                item(L10n.Menu.selectAll, #selector(NSText.selectAll(_:)), "a"),
             ])
-        menu("View", [item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])])
+        menu(L10n.Menu.view, [item(L10n.Menu.fullScreen, #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])])
         menu(
-            "Playback",
+            L10n.Menu.playback,
             [
-                item("Play", #selector(EditorWindowController.togglePlayback(_:)), " ", []),
+                item(L10n.Menu.play, #selector(EditorWindowController.togglePlayback(_:)), " ", []),
                 item(
-                    "Back 5 Seconds", #selector(EditorWindowController.skipBackward(_:)), arrow(NSLeftArrowFunctionKey),
+                    L10n.Menu.back5, #selector(EditorWindowController.skipBackward(_:)), arrow(NSLeftArrowFunctionKey),
                     []),
                 item(
-                    "Forward 5 Seconds", #selector(EditorWindowController.skipForward(_:)),
+                    L10n.Menu.forward5, #selector(EditorWindowController.skipForward(_:)),
                     arrow(NSRightArrowFunctionKey), []),
             ])
         menu(
-            "Clip",
+            L10n.Menu.clip,
             [
-                item("Split at Playhead", #selector(EditorWindowController.splitAtPlayhead(_:)), "b"),
-                item("Remove Selected Clip", #selector(TimelineCanvas.deleteSelection(_:)), "\u{8}", []),
-                item("Deselect", #selector(TimelineCanvas.deselect(_:)), "\u{1b}", []), .separator(),
-                item("Preview Cuts", #selector(EditorWindowController.togglePreview(_:)), "p", [.command, .shift]),
-                item("Snap Trim Edges", #selector(EditorWindowController.toggleSnap(_:))), .separator(),
-                item("Transcribe Again…", #selector(EditorWindowController.transcribe(_:))),
-                item("Detect Cuts Again", #selector(EditorWindowController.detect(_:)), "r", [.command, .shift]),
+                item(L10n.Menu.splitAtPlayhead, #selector(EditorWindowController.splitAtPlayhead(_:)), "b"),
+                item(L10n.Menu.removeSelectedClip, #selector(TimelineCanvas.deleteSelection(_:)), "\u{8}", []),
+                item(L10n.Menu.deselect, #selector(TimelineCanvas.deselect(_:)), "\u{1b}", []), .separator(),
+                item(L10n.Menu.previewCuts, #selector(EditorWindowController.togglePreview(_:)), "p", [.command, .shift]),
+                item(L10n.Menu.snapTrim, #selector(EditorWindowController.toggleSnap(_:))), .separator(),
+                item(L10n.Menu.transcribeAgain, #selector(EditorWindowController.transcribe(_:))),
+                item(L10n.Menu.detectAgain, #selector(EditorWindowController.detect(_:)), "r", [.command, .shift]),
             ])
         NSApp.windowsMenu = menu(
-            "Window",
+            L10n.Menu.window,
             [
-                item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
-                item("Zoom", #selector(NSWindow.performZoom(_:))), .separator(),
-                item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))),
+                item(L10n.Menu.minimize, #selector(NSWindow.performMiniaturize(_:)), "m"),
+                item(L10n.Menu.zoom, #selector(NSWindow.performZoom(_:))), .separator(),
+                item(L10n.Menu.bringAllFront, #selector(NSApplication.arrangeInFront(_:))),
             ])
-        NSApp.helpMenu = menu("Help", [])
+        NSApp.helpMenu = menu(L10n.Menu.help, [])
         return main
     }
 }

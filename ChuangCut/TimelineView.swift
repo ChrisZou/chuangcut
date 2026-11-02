@@ -7,8 +7,8 @@ final class TimelinePanel: NSView {
     private let model: EditorModel
     private let canvas = TimelineCanvas()
     private let mode = NSTextField.label(9, weight: .semibold, color: .secondaryLabelColor)
-    private let showRemoved = NSButton(checkboxWithTitle: "Show removed", target: nil, action: nil)
-    private let split = NSButton(title: "Split", image: .symbol("scissors", "Split"), target: nil, action: nil)
+    private let showRemoved = NSButton(checkboxWithTitle: L10n.Timeline.showRemoved, target: nil, action: nil)
+    private let split = NSButton(title: L10n.Timeline.split, image: .symbol("scissors", L10n.Timeline.split), target: nil, action: nil)
     private let zoom = NSSlider()
     private var observers: [Observer] = []
     init(model: EditorModel) {
@@ -23,18 +23,18 @@ final class TimelinePanel: NSView {
         canvas.scroll = scroll
         scroll.documentView = canvas
         canvas.setAccessibilityLabel(
-            "Timeline. Select a clip or subtitle and drag its edges to trim. Delete removes the selection.")
+            L10n.Timeline.accessibility)
 
         let icon = NSImageView(image: .symbol("rectangle.stack", "Timeline", size: 11))
         let title = NSTextField.label(12, weight: .semibold)
-        title.stringValue = "Timeline"
+        title.stringValue = L10n.Timeline.title
         showRemoved.font = .systemFont(ofSize: 10)
         showRemoved.target = self
         showRemoved.action = #selector(toggleRemoved)
         split.bezelStyle = .accessoryBarAction
         split.imagePosition = .imageLeading
         split.font = .systemFont(ofSize: 11)
-        split.toolTip = "Split the clip at the playhead (⌘B)"
+        split.toolTip = L10n.Timeline.splitHelp
         split.target = self
         split.action = #selector(splitAtPlayhead)
         // Logarithmic so both a whole long video and frame-level detail are reachable.
@@ -43,7 +43,7 @@ final class TimelinePanel: NSView {
         zoom.isContinuous = true
         zoom.target = self
         zoom.action = #selector(zoomChanged)
-        zoom.setAccessibilityLabel("Timeline zoom")
+        zoom.setAccessibilityLabel(L10n.Timeline.zoom)
         func button(_ symbol: String, _ help: String, _ action: Selector) -> NSButton {
             let button = NSButton(image: .symbol(symbol, help), target: self, action: action)
             button.isBordered = false
@@ -55,8 +55,8 @@ final class TimelinePanel: NSView {
         let divider = separator(vertical: true)
         let controls = NSStackView(views: [
             icon, title, mode, split, spacer, showRemoved, divider,
-            button("minus.magnifyingglass", "Zoom out", #selector(zoomOut)), zoom,
-            button("plus.magnifyingglass", "Zoom in", #selector(zoomIn)),
+            button("minus.magnifyingglass", L10n.Timeline.zoomOut, #selector(zoomOut)), zoom,
+            button("plus.magnifyingglass", L10n.Timeline.zoomIn, #selector(zoomIn)),
             button("arrow.left.and.right.righttriangle.left.righttriangle.right", "Fit timeline", #selector(fit)),
         ])
         controls.spacing = 12
@@ -86,7 +86,7 @@ final class TimelinePanel: NSView {
             Observer { [weak self] in
                 guard let self else { return }
                 mode.attributedStringValue = NSAttributedString(
-                    string: model.showRemoved ? "SOURCE" : "EDITED",
+                    string: model.showRemoved ? L10n.Timeline.source : L10n.Timeline.edited,
                     attributes: [.kern: 1, .font: mode.font as Any, .foregroundColor: NSColor.secondaryLabelColor])
                 showRemoved.state = model.showRemoved ? .on : .off
                 zoom.doubleValue = log(model.pointsPerSecond)
@@ -286,7 +286,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             NSColor.black.withAlphaComponent(0.18).setFill()
             NSRect(x: box.minX, y: box.minY, width: box.width, height: 22).fill()
             if box.width > 45 {
-                let label = "\(clip.index + 1)  \(model.project?.source.lastPathComponent ?? "Video")"
+                let label = "\(clip.index + 1)  \(model.project?.source.lastPathComponent ?? "视频")"
                 drawText(
                     label, at: NSPoint(x: max(box.minX + 16, dirtyRect.minX + 4), y: box.minY + 5), color: .white,
                     size: 10, weight: .medium)
@@ -632,17 +632,17 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let index = cueIndex(at: point), let cue = model?.cues[index] {
-            toolTip = "\(cue.text) · Drag its edges to retime, Delete removes it, double-click to play"
+            toolTip = "\(cue.text) · 拖动边缘调整时间，Delete 删除，双击播放"
         } else if removed,
             let cut = model?.project?.candidates.first(where: { $0.range.contains((point.x - inset) / pps) })
         {
             toolTip =
-                "\(cut.kind.title) · \(String(format: "%.2f–%.2fs", cut.sourceStart, cut.sourceEnd)) · ⌥ click to toggle"
+                String(format: L10n.Timeline.cutTooltip, cut.kind.title, cut.sourceStart, cut.sourceEnd)
         } else if let clip = clips.first(where: { rect($0).contains(point) }) {
             toolTip =
-                "Clip \(clip.index + 1) · \(String(format: "%.2f–%.2fs", clip.source.start, clip.source.end)) · Drag edges to trim"
+                String(format: L10n.Timeline.clipTooltip, clip.index + 1, clip.source.start, clip.source.end)
         } else {
-            toolTip = "Click or drag to scrub · ⌘ scroll to zoom"
+            toolTip = L10n.Timeline.scrubHelp
         }
     }
     override func mouseDown(with event: NSEvent) {
@@ -826,7 +826,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         }
         model.selectedCue = model.cues[index].firstWord
         let menu = NSMenu()
-        let item = NSMenuItem(title: "Delete Subtitle", action: #selector(deleteSelection(_:)), keyEquivalent: "")
+        let item = NSMenuItem(title: L10n.Timeline.deleteSubtitle, action: #selector(deleteSelection(_:)), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
         return menu
@@ -846,7 +846,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         guard let model else { return false }
         let subtitle = model.selectedCueIndex != nil
         if item.action == #selector(deleteSelection(_:)) && item.menu?.supermenu != nil {
-            item.title = subtitle ? "Delete Selected Subtitle" : "Remove Selected Clip"
+            item.title = subtitle ? L10n.Timeline.deleteSelectedSubtitle : L10n.Timeline.removeSelectedClip
         }
         guard window?.isKeyWindow == true, model.selectedSegment != nil || subtitle else { return false }
         return item.action != #selector(deleteSelection(_:)) || !model.busy

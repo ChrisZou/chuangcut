@@ -18,7 +18,14 @@ extension CutKind {
         case .manual: return "scissors"
         }
     }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .pause: return L10n.CutKind.pause
+        case .filler: return L10n.CutKind.filler
+        case .retake: return L10n.CutKind.retake
+        case .manual: return L10n.CutKind.manual
+        }
+    }
 }
 extension NSAttributedString.Key {
     fileprivate static let cutID = NSAttributedString.Key("ChuangCutCandidate")
@@ -96,7 +103,7 @@ final class TranscriptPanel: ColorView {
     private let count = NSTextField.label(11, mono: true, color: .tertiaryLabelColor)
     private let scroll = NSScrollView()
     private let text: TranscriptTextView
-    private let transcribe = NSButton(title: "Transcribe", target: nil, action: nil)
+    private let transcribe = NSButton(title: L10n.Transcript.transcribe, target: nil, action: nil)
     private var observers: [Observer] = []
     init(model: EditorModel) {
         self.model = model
@@ -121,7 +128,7 @@ final class TranscriptPanel: ColorView {
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
         text.textContainerInset = NSSize(width: 70, height: 20)
-        text.setAccessibilityLabel("Transcript. Click words to select a clip; select text and press Delete to cut.")
+        text.setAccessibilityLabel(L10n.Transcript.accessibility)
         // Dropped videos go to the window, not into the text.
         text.unregisterDraggedTypes()
         text.onSeek = { [weak model] in model?.seekWord($0) }
@@ -136,9 +143,9 @@ final class TranscriptPanel: ColorView {
         transcribe.action = #selector(startTranscription)
 
         let title = NSTextField.label(13, weight: .bold)
-        title.stringValue = "Transcript"
+        title.stringValue = L10n.Transcript.title
         let hint = NSTextField.label(10, color: .secondaryLabelColor)
-        hint.stringValue = "Click word to seek · ⌥-click cut to toggle · Select + ⌫ to cut"
+        hint.stringValue = L10n.Transcript.hint
         let line = separator()
         for view in [title, count, hint, line, scroll, transcribe] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -385,15 +392,15 @@ final class TranscriptTextView: NSTextView {
             let value = textStorage?.attribute(.cutID, at: index, effectiveRange: nil) as? String
         {
             contextCut = UUID(uuidString: value)
-            let item = NSMenuItem(title: "Toggle Cut", action: #selector(toggleContextCut), keyEquivalent: "")
+            let item = NSMenuItem(title: L10n.Transcript.toggleCut, action: #selector(toggleContextCut), keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
         if selectedRange().length > 0 {
-            let item = NSMenuItem(title: "Cut Selection", action: #selector(cutSelection), keyEquivalent: "")
+            let item = NSMenuItem(title: L10n.Transcript.cutSelection, action: #selector(cutSelection), keyEquivalent: "")
             item.target = self
             menu.addItem(item)
-            let copy = NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+            let copy = NSMenuItem(title: L10n.Transcript.copy, action: #selector(copy(_:)), keyEquivalent: "")
             copy.target = self
             menu.addItem(copy)
         }

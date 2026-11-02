@@ -36,8 +36,23 @@ targets:
     info:
       path: ChuangCut/Info.plist
       properties:
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.chuangcut.project
+            UTTypeDescription: ChuangCut Project
+            UTTypeConformsTo: [com.apple.package, public.composite-content]
+            UTTypeTagSpecification:
+              public.filename-extension: [chuangcut]
         CFBundleDocumentTypes:
+          - CFBundleTypeName: ChuangCut Project
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSTypeIsPackage: YES
+            LSItemContentTypes: [com.chuangcut.project]
           - CFBundleTypeName: Video
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.movie, public.mpeg-4, com.apple.quicktime-movie]
+          - CFBundleTypeName: Audio
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.audio]

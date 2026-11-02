@@ -11,6 +11,7 @@
 		0724D55408D581D36CE36D99 /* ChuangCutCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0615EE38AB870C4244BD6EA /* ChuangCutCore */; };
 		0D849B8895B9383B1B24EE43 /* ThumbnailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF1AE70B57A29D71C231DBFA /* ThumbnailStore.swift */; };
 		23BAED6D79533B29262CEFAC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F63701545A96550D4139DE13 /* AppDelegate.swift */; };
+		262029F3FF44981753C27B00 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0F5043B7785D944384CC71 /* L10n.swift */; };
 		40AF4116F79A360D2F922DC1 /* SubtitlePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5A93CFF7C2A0C8D5B31FDC /* SubtitlePreview.swift */; };
 		5611379707C0274A40866960 /* PlayerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8413F4223FD352258A992ED3 /* PlayerPanel.swift */; };
 		5BD95BD3C6ABA5D250C3EEC5 /* AppKitSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA52DB4818C75D7994270FC /* AppKitSupport.swift */; };
@@ -24,6 +25,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		1A0F5043B7785D944384CC71 /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
 		1BC79258A5C5A921E2BA03FC /* ChuangCut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChuangCut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		21710EE555607A4C042AAD10 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		3E9C8C54956C1E81488251B7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -90,6 +92,7 @@
 				CE6DCD64765456149E472A4B /* EditorWindowController.swift */,
 				89A72C9FED46FAF26526A04E /* ExportView.swift */,
 				3E9C8C54956C1E81488251B7 /* Info.plist */,
+				1A0F5043B7785D944384CC71 /* L10n.swift */,
 				8413F4223FD352258A992ED3 /* PlayerPanel.swift */,
 				DA194C9F8D4C4C26ADE01D01 /* SettingsView.swift */,
 				DC5A93CFF7C2A0C8D5B31FDC /* SubtitlePreview.swift */,
@@ -182,6 +185,7 @@
 				7C8E1CF0A423C7DD970D18C9 /* EditorModel.swift in Sources */,
 				88860D04729C04FDB89E933E /* EditorWindowController.swift in Sources */,
 				008EC526820280D24F5EE2A2 /* ExportView.swift in Sources */,
+				262029F3FF44981753C27B00 /* L10n.swift in Sources */,
 				5611379707C0274A40866960 /* PlayerPanel.swift in Sources */,
 				606C5F7FB363047CB4D97B85 /* SettingsView.swift in Sources */,
 				40AF4116F79A360D2F922DC1 /* SubtitlePreview.swift in Sources */,

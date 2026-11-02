@@ -1,4 +1,5 @@
 import AVKit
+import UniformTypeIdentifiers
 import ChuangCutCore
 import Combine
 import SwiftUI
@@ -84,9 +85,10 @@ import SwiftUI
         return mapper.keptRanges[i]
     }
     var progressLabel: String {
-        if stage == "Transcribing" || stage == "Exporting" {
-            return
-                "\(stage) \(Int((stage == "Transcribing" ? max(0, min(1, (progress - 0.1) / 0.65)) : progress) * 100))%"
+        if stage == L10n.Stage.transcribing || stage == L10n.Stage.exporting {
+            let fraction =
+                stage == L10n.Stage.transcribing ? max(0, min(1, (progress - 0.1) / 0.65)) : progress
+            return "\(stage) \(Int(fraction * 100))%"
         }
         return stage
     }
@@ -103,6 +105,11 @@ import SwiftUI
     @ObservationIgnored private var styleChange: AnyCancellable?
     /// Serial, so saves land in edit order without blocking the main thread.
     private let saveQueue = DispatchQueue(label: "ChuangCut.save", qos: .utility)
+    /// Current `.chuangcut` package, if the user has saved or opened one.
+    var projectPackageURL: URL?
+    /// True after edits until the package is written (or no package yet).
+    var isDirty = false
+    @ObservationIgnored private var packageAutosave: DispatchWorkItem?
     var busy: Bool { !stage.isEmpty }
     var isTrimming: Bool { trimBaseline != nil }
     init() {
@@ -336,16 +343,130 @@ import SwiftUI
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url { open(url) }
     }
+    func chooseProject() {
+        guard !busy else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: ProjectPackage.pathExtension)].compactMap { $0 }
+        panel.message = L10n.Menu.openProject
+        if panel.runModal() == .OK, let url = panel.url { openProject(url) }
+    }
+    func saveProject() {
+        guard !busy, project != nil else { return }
+        if let projectPackageURL {
+            writePackage(to: projectPackageURL, clearDirty: true)
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: ProjectPackage.pathExtension)].compactMap { $0 }
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue =
+            (project?.source.deletingPathExtension().lastPathComponent ?? "project") + ".\(ProjectPackage.pathExtension)"
+        panel.message = L10n.Menu.saveProject
+        if panel.runModal() == .OK, let url = panel.url {
+            var package = url
+            if package.pathExtension != ProjectPackage.pathExtension {
+                package = package.appendingPathExtension(ProjectPackage.pathExtension)
+            }
+            writePackage(to: package, clearDirty: true)
+            projectPackageURL = package
+        }
+    }
+    func openProject(_ url: URL) {
+        guard !busy else { return }
+        pause()
+        cancellation.cancel()
+        cancellation = CancellationToken()
+        let token = cancellation
+        stage = L10n.Stage.openingProject
+        progress = 0
+        peaks = []
+        project = nil
+        projectPackageURL = nil
+        isDirty = false
+        editUndoManager.removeAllActions()
+        selectedSegment = nil
+        selectedCue = nil
+        selectedCandidate = nil
+        exportedURL = nil
+        let tools = AppSettings.shared.tools
+        Task {
+            do {
+                let loaded = try await Task.detached(priority: .userInitiated) {
+                    try ProjectPackage.load(from: url)
+                }.value
+                let mediaURL = loaded.mediaURL
+                let result = try await Task.detached(priority: .userInitiated) {
+                    let runner = FFmpegRunner(tools: tools)
+                    let media = try runner.probe(mediaURL, cancellation: token)
+                    let peaks = media.hasAudio ? try runner.waveform(mediaURL, cancellation: token) : []
+                    var project = loaded.project
+                    project.media = media
+                    project.source = mediaURL
+                    return (project, peaks)
+                }.value
+                project = result.0
+                peaks = result.1
+                projectPackageURL = url
+                previewCuts = loaded.state.previewCuts
+                revision += 1
+                playhead = loaded.state.playhead
+                playbackMapper = nil
+                player.replaceCurrentItem(with: AVPlayerItem(url: mediaURL))
+                pause()
+                seek(loaded.state.playhead)
+                thumbnails.load(mediaURL, hasVideo: !(project?.media.isAudioOnly ?? false))
+                rebuildPlayback()
+                isDirty = false
+                stage = ""
+            } catch { finish(error) }
+        }
+    }
+    private func writePackage(to packageURL: URL, clearDirty: Bool) {
+        guard let project else { return }
+        let state = ProjectPackage.State(
+            playhead: playhead, previewCuts: previewCuts, mediaPath: project.source.path,
+            mediaBookmark: ProjectPackage.makeBookmark(for: project.source))
+        let snapshot = project
+        saveQueue.async { [weak self] in
+            do {
+                try ProjectPackage.save(project: snapshot, state: state, to: packageURL)
+                if clearDirty {
+                    Task { @MainActor in
+                        self?.isDirty = false
+                        self?.projectPackageURL = packageURL
+                    }
+                }
+            } catch {
+                let message = error.localizedDescription
+                Task { @MainActor in self?.error = message }
+            }
+        }
+    }
+    private func schedulePackageAutosave() {
+        guard projectPackageURL != nil, project != nil else { return }
+        packageAutosave?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let url = self.projectPackageURL else { return }
+            self.writePackage(to: url, clearDirty: true)
+        }
+        packageAutosave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
+    }
     func open(_ url: URL, autoTranscribe: Bool = false) {
         guard !busy else { return }
         pause()
         cancellation.cancel()
         cancellation = CancellationToken()
         let token = cancellation
-        stage = "Opening"
+        stage = L10n.Stage.opening
         progress = 0
         peaks = []
         project = nil
+        projectPackageURL = nil
+        isDirty = false
         editUndoManager.removeAllActions()
         selectedSegment = nil
         selectedCue = nil
@@ -397,7 +518,7 @@ import SwiftUI
             return
         }
         pause()
-        stage = "Transcribing"
+        stage = L10n.Stage.transcribing
         progress = 0
         cancellation = CancellationToken()
         let token = cancellation
@@ -409,7 +530,7 @@ import SwiftUI
                         decisions: project.decisions, cancellation: token
                     ) { stage, progress in
                         Task { @MainActor in
-                            self?.stage = stage
+                            self?.stage = L10n.Stage.map(stage)
                             self?.progress = progress
                         }
                     }
@@ -418,7 +539,7 @@ import SwiftUI
                 merged.candidates = Self.keepingManualCuts(
                     from: self.project?.candidates ?? [], in: analyzed.candidates)
                 merged.splitPoints = self.project?.splitPoints
-                if previous.transcript != nil { recordUndo("Transcribe", previous: previous) }
+                if previous.transcript != nil { recordUndo(L10n.Undo.transcribe, previous: previous) }
                 self.project = merged
                 changed()
                 stage = ""
@@ -430,11 +551,11 @@ import SwiftUI
     }
     func detect() {
         guard !busy, let project, project.transcript != nil else { return }
-        recordUndo("Detect cuts")
+        recordUndo(L10n.Undo.detect)
         // Recompute acoustic silences when the threshold changes.
         let settings = AppSettings.shared.detection
         let tools = AppSettings.shared.tools
-        stage = "Detecting cuts"
+        stage = L10n.Stage.detecting
         progress = 0
         cancellation = CancellationToken()
         let token = cancellation
@@ -457,13 +578,13 @@ import SwiftUI
     }
     func toggle(_ id: UUID) {
         guard !busy, let i = project?.candidates.firstIndex(where: { $0.id == id }) else { return }
-        recordUndo("Toggle cut")
+        recordUndo(L10n.Undo.toggleCut)
         project?.candidates[i].enabled.toggle()
         changed()
     }
     func setAll(_ kind: CutKind, enabled: Bool) {
         guard !busy, let cuts = project?.candidates else { return }
-        recordUndo("Toggle group")
+        recordUndo(L10n.Undo.toggleGroup)
         for i in cuts.indices where cuts[i].kind == kind { project?.candidates[i].enabled = enabled }
         changed()
     }
@@ -471,7 +592,7 @@ import SwiftUI
         guard !busy, let start = words.first?.start, let end = words.last?.end, project != nil, end > start else {
             return
         }
-        recordUndo("Manual cut")
+        recordUndo(L10n.Undo.manualCut)
         project?.candidates.append(
             CutCandidate(
                 kind: .manual, start: start, end: end, text: words.map(\.text).joined(),
@@ -519,10 +640,10 @@ import SwiftUI
         guard let baseline = trimBaseline else { return }
         trimBaseline = nil
         if baseline.cuts != project?.candidates {
-            recordUndo("Trim clip", previous: baseline)
+            recordUndo(L10n.Undo.trim, previous: baseline)
             changed()
         } else if baseline.subtitles != project?.subtitleEdits {
-            recordUndo("Adjust subtitle timing", previous: baseline)
+            recordUndo(L10n.Undo.adjustSubtitle, previous: baseline)
             save()
         }
     }
@@ -545,7 +666,7 @@ import SwiftUI
             let first = words.firstIndex(where: { $0.id == cues[index].firstWord }),
             let last = words[first...].firstIndex(where: { $0.id == cues[index].lastWord })
         else { return }
-        recordUndo("Delete subtitle")
+        recordUndo(L10n.Undo.deleteSubtitle)
         var edits = project?.subtitleEdits ?? SubtitleEdits()
         for word in words[first...last] {
             edits.hiddenWords.insert(word.id)
@@ -558,7 +679,7 @@ import SwiftUI
     }
     func deleteSelectedClip() {
         guard !busy, let range = selectedRange else { return }
-        recordUndo("Remove clip")
+        recordUndo(L10n.Undo.removeClip)
         project?.candidates.append(
             CutCandidate(
                 kind: .manual, start: range.start, end: range.end, text: "Removed clip", reason: "Timeline selection"))
@@ -569,19 +690,21 @@ import SwiftUI
         guard !busy, let range = mapper.keptRanges.first(where: { $0.contains(playhead) }),
             playhead - range.start >= 0.1, range.end - playhead >= 0.1
         else { return }
-        recordUndo("Split clip")
+        recordUndo(L10n.Undo.split)
         project?.splitPoints = (project?.splitPoints ?? []) + [playhead]
         changed()
         selectSegment(at: playhead)
     }
     private func changed() {
         revision += 1
+        isDirty = projectPackageURL != nil
         rebuildPlayback()
         save()
     }
     /// Subtitle edits only need saving: the transcript and the playback composition stay as they are.
     private func save() {
         guard let project else { return }
+        if projectPackageURL != nil { isDirty = true }
         // Encoding a long transcript takes tens of milliseconds.
         saveQueue.async { [weak self] in
             do { try Pipeline.save(project) } catch {
@@ -589,6 +712,7 @@ import SwiftUI
                 Task { @MainActor in self?.error = message }
             }
         }
+        schedulePackageAutosave()
     }
     func finishSaving() { saveQueue.sync {} }
     func cancel() { cancellation.cancel() }
@@ -598,7 +722,7 @@ import SwiftUI
     }
     func export(to url: URL, options: ExportOptions) {
         guard !busy, let project else { return }
-        stage = "Exporting"
+        stage = L10n.Stage.exporting
         progress = 0
         pause()
         cancellation = CancellationToken()

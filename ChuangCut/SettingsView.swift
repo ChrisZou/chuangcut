@@ -13,66 +13,66 @@ struct TranscriptionSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("Engine", selection: $settings.transcriber) {
-                    Text("Doubao Seed-ASR").tag(Transcriber.doubao)
-                    Text("Whisper, on this Mac").tag(Transcriber.whisper)
+                Picker(L10n.Settings.engine, selection: $settings.transcriber) {
+                    Text(L10n.Settings.doubao).tag(Transcriber.doubao)
+                    Text(L10n.Settings.whisper).tag(Transcriber.whisper)
                 }
             } footer: {
                 Text(
                     settings.transcriber == .doubao
-                        ? "Writes down every word as spoken, restarts and repeated takes included, so only the last take is kept. Audio is uploaded to Volcengine."
-                        : "Works offline, but tidies speech as it transcribes and often leaves out repeated takes and fillers."
+                        ? L10n.Settings.doubaoFooter
+                        : L10n.Settings.whisperFooter
                 ).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             if settings.transcriber == .doubao {
                 Section {
-                    SecureField("API key", text: $settings.doubaoKey)
-                    TextField("Hotword table ID", text: $settings.hotwordTable, prompt: Text("Optional"))
+                    SecureField(L10n.Settings.apiKey, text: $settings.doubaoKey)
+                    TextField(L10n.Settings.hotword, text: $settings.hotwordTable, prompt: Text(L10n.Settings.hotwordPrompt))
                 } header: {
-                    Text("Doubao")
+                    Text(L10n.Settings.doubaoSection)
                 } footer: {
                     Link(
-                        "Get a key for 录音文件识别大模型 in the Volcengine console",
+                        L10n.Settings.getKey,
                         destination: URL(string: "https://console.volcengine.com/speech/app")!
                     ).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 whisperModel
             }
-            Section("Tools") {
+            Section(L10n.Settings.tools) {
                 TextField("ffmpeg", text: $settings.ffmpegPath)
                 TextField("whisper-cli", text: $settings.whisperPath)
             }
         }.formStyle(.grouped).frame(width: 610, height: 520)
             .task { refresh(includeDownloads: false) }
-            .alert("Download failed", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-                Button("OK") { error = nil }
+            .alert(L10n.Settings.downloadFailed, isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button(L10n.Settings.ok) { error = nil }
             } message: {
                 Text(error ?? "")
             }
     }
     private var whisperModel: some View {
-        Section("Whisper model") {
+        Section(L10n.Settings.whisperModel) {
             HStack {
-                TextField("Model path", text: $settings.modelPath)
+                TextField(L10n.Settings.modelPath, text: $settings.modelPath)
                 Button {
                     chooseModel()
                 } label: {
                     Image(systemName: "folder")
-                }.help("Choose model").accessibilityLabel("Choose model")
+                }.help(L10n.Settings.chooseModel).accessibilityLabel(L10n.Settings.chooseModel)
             }
             if !found.isEmpty {
-                Picker("Installed", selection: $settings.modelPath) {
+                Picker(L10n.Settings.installed, selection: $settings.modelPath) {
                     if !found.contains(where: { $0.path == settings.modelPath }) {
                         Text(
                             settings.modelPath.isEmpty
-                                ? "Choose a model" : URL(fileURLWithPath: settings.modelPath).lastPathComponent
+                                ? L10n.Settings.chooseAModel : URL(fileURLWithPath: settings.modelPath).lastPathComponent
                         ).tag(settings.modelPath)
                     }
                     ForEach(found, id: \.path) { Text($0.lastPathComponent).tag($0.path) }
                 }
             }
-            Picker("Download", selection: $modelName) {
+            Picker(L10n.Settings.download, selection: $modelName) {
                 ForEach(ModelManager.recommended, id: \.self) {
                     Text(
                         $0.replacingOccurrences(of: "ggml-", with: "").replacingOccurrences(of: ".bin", with: "")
@@ -82,15 +82,15 @@ struct TranscriptionSettingsView: View {
             HStack {
                 if downloading {
                     ProgressView(value: progress)
-                    Button("Cancel") { manager.cancel() }
+                    Button(L10n.Settings.cancel) { manager.cancel() }
                 } else {
-                    Button("Download") { download() }
+                    Button(L10n.Settings.download) { download() }
                     Spacer()
                     Button {
                         refresh(includeDownloads: true)
                     } label: {
                         Image(systemName: "arrow.clockwise")
-                    }.help("Find models, including Downloads")
+                    }.help(L10n.Settings.findModels)
                 }
             }
         }
@@ -124,9 +124,9 @@ struct DetectionSettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     var body: some View {
         Form {
-            Picker("Language", selection: $settings.language) {
+            Picker(L10n.Settings.language, selection: $settings.language) {
                 Text("中文").tag("zh")
-                Text("Auto").tag("auto")
+                Text(L10n.Settings.auto).tag("auto")
                 Text("English").tag("en")
                 Text("日本語").tag("ja")
                 Text("한국어").tag("ko")
@@ -135,21 +135,21 @@ struct DetectionSettingsView: View {
                 Text("Español").tag("es")
             }
             HStack {
-                Text("Pause threshold")
+                Text(L10n.Settings.pauseThreshold)
                 Slider(value: $settings.pause, in: 0.2...2, step: 0.05)
                 Text(String(format: "%.2f s", settings.pause)).monospacedDigit().frame(width: 55)
             }
             Section {
                 HStack {
-                    Text("Before speech")
+                    Text(L10n.Settings.beforeSpeech)
                     Slider(value: $settings.leadIn, in: 0...0.2, step: 0.01)
                     Text(String(format: "%.2f s", settings.leadIn)).monospacedDigit().frame(width: 55)
                 }
-                gapSlider("Pause after sentence", $settings.sentenceGap)
-                gapSlider("Pause after comma", $settings.commaGap)
-                gapSlider("Pause between words", $settings.wordGap)
+                gapSlider(L10n.Settings.pauseAfterSentence, $settings.sentenceGap)
+                gapSlider(L10n.Settings.pauseAfterComma, $settings.commaGap)
+                gapSlider(L10n.Settings.pauseBetweenWords, $settings.wordGap)
             }
-            TextField("Fillers", text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
+            TextField(L10n.Settings.fillers, text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
         }.formStyle(.grouped).frame(width: 610, height: 520)
     }
     private func gapSlider(_ title: String, _ value: Binding<Double>) -> some View {
@@ -174,25 +174,25 @@ struct SubtitleSettingsView: View {
 struct SubtitleStyleControls: View {
     @Binding var style: SubtitleStyle
     var body: some View {
-        Toggle("Replace inner punctuation with spaces", isOn: $style.replaceInnerPunctuationWithSpaces)
-        TextField("Font", text: $style.fontName)
+        Toggle(L10n.Settings.replacePunct, isOn: $style.replaceInnerPunctuationWithSpaces)
+        TextField(L10n.Settings.font, text: $style.fontName)
         HStack {
-            Text("Size")
+            Text(L10n.Settings.size)
             Slider(value: $style.fontSize, in: 16...96, step: 1)
             Text("\(Int(style.fontSize))").monospacedDigit().frame(width: 28)
         }
-        TextField("Color (hex)", text: $style.colorHex)
+        TextField(L10n.Settings.colorHex, text: $style.colorHex)
         HStack {
-            Text("Outline")
+            Text(L10n.Settings.outline)
             Slider(value: $style.outline, in: 0...6, step: 0.5)
             Text(String(format: "%.1f", style.outline)).frame(width: 28)
         }
         HStack {
-            Text("Bottom margin")
+            Text(L10n.Settings.bottomMargin)
             Slider(value: $style.bottomMargin, in: 0...200, step: 2)
             Text("\(Int(style.bottomMargin))").frame(width: 28)
         }
-        Stepper("CJK line length: \(style.cjkLineLength)", value: $style.cjkLineLength, in: 8...30)
-        Stepper("Latin line length: \(style.latinLineLength)", value: $style.latinLineLength, in: 20...70)
+        Stepper(String(format: L10n.Settings.cjkLine, style.cjkLineLength), value: $style.cjkLineLength, in: 8...30)
+        Stepper(String(format: L10n.Settings.latinLine, style.latinLineLength), value: $style.latinLineLength, in: 20...70)
     }
 }
