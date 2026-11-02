@@ -145,19 +145,19 @@ struct DetectionSettingsView: View {
                     Slider(value: $settings.leadIn, in: 0...0.2, step: 0.01)
                     Text(String(format: "%.2f s", settings.leadIn)).monospacedDigit().frame(width: 55)
                 }
-                HStack {
-                    Text("After speech")
-                    Slider(value: $settings.tail, in: 0...0.3, step: 0.01)
-                    Text(String(format: "%.2f s", settings.tail)).monospacedDigit().frame(width: 55)
-                }
-            } footer: {
-                Text(
-                    "Each kept clip starts this long before its first word is heard and ends this long after its last word fades."
-                )
-                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                gapSlider("Pause after sentence", $settings.sentenceGap)
+                gapSlider("Pause after comma", $settings.commaGap)
+                gapSlider("Pause between words", $settings.wordGap)
             }
             TextField("Fillers", text: $settings.fillerText, axis: .vertical).lineLimit(3...5)
         }.formStyle(.grouped).frame(width: 610, height: 520)
+    }
+    private func gapSlider(_ title: String, _ value: Binding<Double>) -> some View {
+        HStack {
+            Text(title)
+            Slider(value: value, in: 0.05...0.8, step: 0.01)
+            Text(String(format: "%.2f s", value.wrappedValue)).monospacedDigit().frame(width: 55)
+        }
     }
 }
 struct SubtitleSettingsView: View {

@@ -101,16 +101,22 @@ public struct CutDetector {
             }
         }
         candidates = candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
-        fitKeptStretches(&candidates, spoken: spoken, duration: duration, loudness: loudness)
-        return candidates.filter { $0.sourceEnd > $0.sourceStart }
+        fitKeptStretches(
+            &candidates, spoken: spoken, gaps: pauseTargets(words, sentenceEnds: sentenceEnds), duration: duration,
+            loudness: loudness)
+        return candidates.filter { $0.sourceEnd > $0.sourceStart }.sorted { $0.sourceStart < $1.sourceStart }
     }
     /// Shapes each stretch left between cuts around its speech. A stretch with no kept word (a breath, a burp,
     /// the padding before the first word) is cut. With loudness, the others start `leadIn` before their first
-    /// word becomes audible, so picture and voice arrive together, and end `tail` after their last word,
-    /// instead of wherever a silence or a removed take happened to stop.
+    /// word becomes audible, so picture and voice arrive together, and end so the join sounds like the pause
+    /// the last word's punctuation calls for, instead of wherever a silence or a removed take happened to stop.
+    /// Pauses inside a stretch that run longer than their punctuation calls for are shortened to it, so every
+    /// pause in the edit follows the same rhythm.
     private func fitKeptStretches(
-        _ candidates: inout [CutCandidate], spoken: [Word], duration: Double, loudness: Loudness?
+        _ candidates: inout [CutCandidate], spoken: [Word], gaps: [UUID: Double], duration: Double,
+        loudness: Loudness?
     ) {
+        var shortened: [CutCandidate] = []
         let removed = TimelineMapper.merge(candidates.map(\.range))
         var stretches: [TimeRange] = []
         var cursor = 0.0
@@ -155,11 +161,54 @@ public struct CutDetector {
                 // Stop short of the next word: its timestamp can trail its first audible frame.
                 if let offset = loudness.offset(from: last.start, to: max(last.end, min(upper - 0.1, last.end + 0.35)))
                 {
-                    let end = max(mids[lastIndex], min(upper, offset + settings.tail))
+                    // The next clip brings `leadIn` of room sound of its own.
+                    let tail = max(0, (gaps[last.id] ?? settings.wordGap) - settings.leadIn)
+                    let end = max(mids[lastIndex], min(upper, offset + tail))
                     for i in after { candidates[i].sourceStart = end }
                 }
             }
+            for index in firstIndex..<lastIndex {
+                let target = gaps[spoken[index].id] ?? settings.wordGap
+                guard let quiet = loudness.longestQuiet(from: mids[index], to: mids[index + 1]) else { continue }
+                // The next word is heard from its softer attack on, which can begin inside the quiet run.
+                let heard = loudness.onset(from: quiet.start, to: min(stretch.end, quiet.end + 0.3)) ?? quiet.end
+                guard heard - quiet.start > target + 0.06 else { continue }
+                let cut = TimeRange(quiet.start + max(0, target - settings.leadIn), heard - settings.leadIn)
+                // A word whose timestamps reach into the pause would read as removed while it is still heard.
+                guard cut.end > cut.start, !mids.contains(where: { $0 >= cut.start && $0 < cut.end }) else { continue }
+                shortened.append(
+                    CutCandidate(
+                        kind: .pause, start: cut.start, end: cut.end,
+                        reason: String(format: "Pause shortened to %.2fs", target)))
+            }
         }
+        candidates += shortened
+    }
+    /// The silence to leave after each spoken word, from the punctuation that follows it: a word's own text can
+    /// end in punctuation (Whisper), or punctuation can follow as separate tokens (Doubao).
+    private func pauseTargets(_ words: [Word], sentenceEnds: Set<UUID>) -> [UUID: Double] {
+        let sentence = CharacterSet(charactersIn: "。！？.!?…")
+        let comma = CharacterSet(charactersIn: "，,、；;：:")
+        var result: [UUID: Double] = [:]
+        var index = 0
+        while index < words.count {
+            let word = words[index]
+            index += 1
+            guard !word.isPunctuation else { continue }
+            var marks = Array(
+                word.text.unicodeScalars.reversed().prefix { CharacterSet.punctuationCharacters.contains($0) })
+            var ends = sentenceEnds.contains(word.id)
+            while index < words.count && words[index].isPunctuation {
+                marks += words[index].text.unicodeScalars
+                ends = ends || sentenceEnds.contains(words[index].id)
+                index += 1
+            }
+            result[word.id] =
+                ends || marks.contains(where: sentence.contains)
+                ? settings.sentenceGap
+                : marks.contains(where: comma.contains) ? settings.commaGap : settings.wordGap
+        }
+        return result
     }
     /// How far after a phrase a repeat still counts as a retake of it.
     static let retakeWindow = 45.0

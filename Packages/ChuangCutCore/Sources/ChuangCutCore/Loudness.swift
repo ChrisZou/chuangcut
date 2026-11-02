@@ -26,6 +26,22 @@ public struct Loudness: Sendable {
         while start > first && levels[start - 1] >= soft { start -= 1 }
         return Double(start) * Self.frame
     }
+    /// The longest stretch of `lower..<upper` in which nothing is clearly audible.
+    func longestQuiet(from lower: Double, to upper: Double) -> TimeRange? {
+        var best: Range<Int>?
+        var start: Int?
+        let end = index(upper)
+        guard index(lower) < end else { return nil }
+        for i in index(lower)...end {
+            if i < end && levels[i] < clear {
+                if start == nil { start = i }
+            } else if let first = start {
+                if (best?.count ?? 0) < i - first { best = first..<i }
+                start = nil
+            }
+        }
+        return best.map { TimeRange(Double($0.lowerBound) * Self.frame, Double($0.upperBound) * Self.frame) }
+    }
     /// Where the last clearly audible sound in `lower..<upper` ends.
     func offset(from lower: Double, to upper: Double) -> Double? {
         let first = index(lower)
