@@ -136,6 +136,19 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(kept[0].start, 1.94, accuracy: 0.001)
         // No punctuation follows the word: 0.15 s is heard, 0.03 s of it from the next clip's lead-in.
         XCTAssertEqual(kept[0].end, 2.62, accuracy: 0.001)
+        // The ASR can put the last word after its sound has already stopped; the clip still ends by the sound,
+        // not where the cut after it happened to begin.
+        var two = levels
+        for i in 310..<330 { two[i] = -20 }
+        let late = [
+            Word(text: "你", start: 2.05, end: 2.2), Word(text: "好。", start: 2.55, end: 2.62),
+            Word(text: "再", start: 3.1, end: 3.3),
+        ]
+        let lateCuts = CutDetector().detect(
+            words: late, duration: 4, silences: [TimeRange(0, 1.97), TimeRange(2.5, 3.1), TimeRange(3.3, 4)],
+            loudness: Loudness(levels: two))
+        // Sound stops at 2.50; a sentence end is heard as 0.30 s, 0.03 s of it from the next clip's lead-in.
+        XCTAssertEqual(TimelineMapper(duration: 4, cuts: lateCuts).keptRanges.first?.end ?? 0, 2.77, accuracy: 0.001)
     }
     func testPausesFollowTheirPunctuation() {
         // 我们，⏸0.5s 开始。⏸1.2s 好 — the comma pause stays below the pause threshold, so it is inside a kept clip.

@@ -11,3 +11,4 @@ xcuserdata/
 __pycache__/
 *.py[cod]
 .codex-prompts/
+.claude/worktrees/

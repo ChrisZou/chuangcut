@@ -158,8 +158,10 @@ public struct CutDetector {
                 let upper = min(
                     lastIndex + 1 < spoken.count ? spoken[lastIndex + 1].start : duration,
                     after.map { candidates[$0].sourceEnd }.min()!)
-                // Stop short of the next word: its timestamp can trail its first audible frame.
-                if let offset = loudness.offset(from: last.start, to: max(last.end, min(upper - 0.1, last.end + 0.35)))
+                // Stop short of the next word: its timestamp can trail its first audible frame. Look back before
+                // the last word too: its timestamps can trail its sound, which may have stopped before they begin.
+                if let offset = loudness.offset(
+                    from: max(stretch.start, last.start - 0.5), to: max(last.end, min(upper - 0.1, last.end + 0.35)))
                 {
                     // The next clip brings `leadIn` of room sound of its own.
                     let tail = max(0, (gaps[last.id] ?? settings.wordGap) - settings.leadIn)
