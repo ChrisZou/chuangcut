@@ -109,6 +109,7 @@ final class PlayerPanel: NSView {
         if let media = model.project?.media, media.width > 0, media.height > 0 {
             stage.aspect = Double(media.width) / Double(media.height)
         }
+        stage.blank.isHidden = !(model.project?.media.isAudioOnly ?? false)
     }
     private func updateSubtitle() {
         if let media = model.project?.media {
@@ -147,6 +148,8 @@ private final class SubtitleLayer: NSView {
 private final class PlayerStage: NSView {
     let playerView = AVPlayerView()
     let subtitles = SubtitleLayer()
+    /// Covers the player's audio-only artwork: an audio recording previews as a black picture.
+    let blank = NSView()
     private let frameView = NSView()
     var aspect = 16.0 / 9 {
         didSet { if aspect != oldValue { needsLayout = true } }
@@ -170,7 +173,12 @@ private final class PlayerStage: NSView {
         shadow.shadowOffset = NSSize(width: 0, height: -6)
         frameView.wantsLayer = true
         frameView.shadow = shadow
+        blank.wantsLayer = true
+        blank.layer?.backgroundColor = NSColor.black.cgColor
+        blank.layer?.cornerRadius = 10
+        blank.isHidden = true
         frameView.addSubview(playerView)
+        frameView.addSubview(blank)
         frameView.addSubview(subtitles)
         addSubview(frameView)
     }
@@ -185,6 +193,7 @@ private final class PlayerStage: NSView {
             x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width,
             height: size.height)
         playerView.frame = frameView.bounds
+        blank.frame = frameView.bounds
         subtitles.frame = frameView.bounds
     }
 }

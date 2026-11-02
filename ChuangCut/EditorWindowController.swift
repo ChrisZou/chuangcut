@@ -236,8 +236,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
             button.toolTip = help
             tools[id] = button
         }
-        tool(.importVideo, "Import", "plus", #selector(importVideo(_:)), help: "Open a video (⌘O)")
-        tool(.export, "Export", "square.and.arrow.up", #selector(showExport(_:)), help: "Export the edited video (⇧⌘E)")
+        tool(.importVideo, "Import", "plus", #selector(importVideo(_:)), help: "Open a video or audio file (⌘O)")
+        tool(.export, "Export", "square.and.arrow.up", #selector(showExport(_:)), help: "Export the edit (⇧⌘E)")
         let toolbar = NSToolbar(identifier: "EditorToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -263,7 +263,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
     }
 }
 
-/// Accepts a dropped video anywhere in the window and outlines the window while a drag hovers.
+/// Accepts a dropped video or audio file anywhere in the window and outlines the window while a drag hovers.
 private final class DropTargetView: NSView {
     var canAccept: () -> Bool = { true }
     var onDrop: (URL) -> Void = { _ in }
@@ -316,8 +316,8 @@ private final class EmptyStateView: NSView {
         let icon = NSImageView(image: .symbol("film.stack", nil, size: 52, weight: .light))
         icon.contentTintColor = .controlAccentColor
         let title = NSTextField.label(17, weight: .medium)
-        title.stringValue = "Drop a video or press ⌘O"
-        let button = NSButton(title: "Import video", target: self, action: #selector(importVideo))
+        title.stringValue = "Drop a video or audio file, or press ⌘O"
+        let button = NSButton(title: "Import", target: self, action: #selector(importVideo))
         button.controlSize = .large
         button.keyEquivalent = "\r"
         let stack = NSStackView(views: [icon, title, button, status])

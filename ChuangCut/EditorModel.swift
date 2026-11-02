@@ -35,7 +35,14 @@ import SwiftUI
     private(set) var hasProject = false
     private(set) var spokenWordCount: Int?
     static let zoomRange = 0.05...300.0
-    var peaks: [Float] = []
+    var peaks: [Float] = [] { didSet { loudPeak = Self.loudPeak(peaks) } }
+    /// The level loud speech reaches, ignoring the rare clipped spike; the audio-only timeline scales to it.
+    private(set) var loudPeak: Float = 1
+    private static func loudPeak(_ peaks: [Float]) -> Float {
+        guard !peaks.isEmpty else { return 1 }
+        let sorted = peaks.sorted()
+        return sorted[min(sorted.count - 1, sorted.count * 99 / 100)]
+    }
     var playhead = 0.0
     var isPlaying = false
     var previewCuts = true { didSet { if previewCuts != oldValue { rebuildPlayback() } } }
@@ -325,7 +332,7 @@ import SwiftUI
     func chooseFile() {
         guard !busy else { return }
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.movie, .mpeg4Movie, .quickTimeMovie]
+        panel.allowedContentTypes = [.movie, .audio]
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url { open(url) }
     }
@@ -364,7 +371,7 @@ import SwiftUI
                 player.replaceCurrentItem(with: AVPlayerItem(url: url))
                 pause()
                 seek(0)
-                thumbnails.load(url)
+                thumbnails.load(url, hasVideo: !(project?.media.isAudioOnly ?? false))
                 rebuildPlayback()
                 stage = ""
                 // A video seen for the first time is transcribed right away; there is no toolbar button for it.

@@ -19,8 +19,9 @@ import Observation
     @ObservationIgnored private var epoch = UUID()
     /// About 70 MB at 320 × 180; a full-width timeline shows a few dozen tiles.
     private let limit = 300
-    func load(_ url: URL) {
-        guard source != url else { return }
+    /// An audio recording has no frames; its timeline tiles and preview stay dark.
+    func load(_ url: URL, hasVideo: Bool = true) {
+        guard source != url || (generator != nil) != hasVideo else { return }
         source = url
         epoch = UUID()
         generator?.cancelAllCGImageGeneration()
@@ -30,6 +31,8 @@ import Observation
         pending = []
         failed = []
         poster = nil
+        generator = nil
+        guard hasVideo else { return }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true

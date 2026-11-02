@@ -22,11 +22,25 @@ public struct FFmpegRunner {
     }
     public static func mediaInfo(probeJSON: Data) throws -> MediaInfo {
         guard let root = try JSONSerialization.jsonObject(with: probeJSON) as? [String: Any],
-            let streams = root["streams"] as? [[String: Any]],
-            let video = streams.first(where: { $0["codec_type"] as? String == "video" })
-        else { throw ChuangCutError.message("No video stream found") }
+            let streams = root["streams"] as? [[String: Any]]
+        else { throw ChuangCutError.message("No video or audio stream found") }
         let format = root["format"] as? [String: Any] ?? [:]
         let duration = Double(format["duration"] as? String ?? "0") ?? 0
+        let hasAudio = streams.contains { $0["codec_type"] as? String == "audio" }
+        // Cover art in an audio file is a one-frame video stream.
+        guard
+            let video = streams.first(where: {
+                $0["codec_type"] as? String == "video"
+                    && ($0["disposition"] as? [String: Any])?["attached_pic"] as? Int != 1
+            })
+        else {
+            guard hasAudio else { throw ChuangCutError.message("No video or audio stream found") }
+            guard duration > 0 else { throw ChuangCutError.message("Audio duration is unavailable") }
+            // Subtitles and the black preview are laid out on a 1080p canvas.
+            return MediaInfo(
+                duration: duration, width: 1920, height: 1080,
+                bitrate: Int(format["bit_rate"] as? String ?? "192000") ?? 192_000, hasAudio: true, hasVideo: false)
+        }
         guard duration > 0 else { throw ChuangCutError.message("Video duration is unavailable") }
         let fraction = (video["avg_frame_rate"] as? String ?? "0/1").split(separator: "/").compactMap { Double($0) }
         let fps = fraction.count == 2 && fraction[1] > 0 ? fraction[0] / fraction[1] : 0
@@ -38,7 +52,7 @@ public struct FFmpegRunner {
         return MediaInfo(
             duration: duration, width: width, height: height,
             bitrate: Int(video["bit_rate"] as? String ?? format["bit_rate"] as? String ?? "4000000") ?? 4_000_000,
-            hasAudio: streams.contains { $0["codec_type"] as? String == "audio" }, frameRate: fps)
+            hasAudio: hasAudio, frameRate: fps, hasVideo: true)
     }
     static func displayRotation(_ stream: [String: Any]) -> Double {
         let sideData = stream["side_data_list"] as? [[String: Any]] ?? []
@@ -153,7 +167,8 @@ public struct FFmpegRunner {
             "zh": "chi", "en": "eng", "ja": "jpn", "ko": "kor", "fr": "fre", "de": "ger", "es": "spa",
         ][code ?? ""] ?? "und"
     }
-    /// One encoding pass: trim/atrim, concatenate, then optionally overlay native subtitle PNGs.
+    /// One encoding pass: trim/atrim, concatenate, then optionally overlay native subtitle PNGs. An audio
+    /// recording is exported as audio only, with its subtitles beside it.
     public func export(
         project: Project, to output: URL, options: ExportOptions, cancellation: CancellationToken,
         progress: @escaping (Double) -> Void
@@ -164,65 +179,75 @@ public struct FFmpegRunner {
             throw ChuangCutError.message("All media is cut. Disable a cut before exporting.")
         }
         guard output.standardizedFileURL != project.source.standardizedFileURL else {
-            throw ChuangCutError.message("Choose an output different from the source video.")
+            throw ChuangCutError.message("Choose an output different from the source file.")
         }
         let directory = output.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let staging = directory.appendingPathComponent(".chuangcut-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
-        let partial = staging.appendingPathComponent("output.mp4")
+        let video = !project.media.isAudioOnly
+        let partial = staging.appendingPathComponent("output." + (video ? "mp4" : "m4a"))
         let builder = SubtitleBuilder(style: options.style)
         let cues = builder.build(project: project, mapper: mapper)
         var args = ["-y", "-hide_banner", "-i", project.source.path]
         var filters: [String] = []
-        if options.burnSubtitles {
-            let sequence = try SubtitleRenderer.makeSequence(
-                cues: cues, style: options.style, width: project.media.width, height: project.media.height,
-                duration: mapper.editedDuration, directory: staging.appendingPathComponent("subtitles"),
-                cancellation: cancellation)
-            args += ["-f", "concat", "-safe", "0", "-i", sequence.path]
-        }
-        if !project.media.hasAudio { args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"] }
-        let audioInput = project.media.hasAudio ? "0:a:0" : (options.burnSubtitles ? "2:a:0" : "1:a:0")
-        let subtitleInput = 1 + (options.burnSubtitles ? 1 : 0) + (project.media.hasAudio ? 0 : 1)
-        let subtitleTrack = options.subtitleTrack && !cues.isEmpty
-        if subtitleTrack {
-            let srt = staging.appendingPathComponent("track.srt")
-            try builder.srt(cues).write(to: srt, atomically: true, encoding: .utf8)
-            args += ["-f", "srt", "-i", srt.path]
-        }
-        // Explicit split/asplit makes reuse of the same input deterministic for many kept ranges.
-        filters.append("[0:v:0]split=\(ranges.count)" + ranges.indices.map { "[vin\($0)]" }.joined())
-        filters.append("[\(audioInput)]asplit=\(ranges.count)" + ranges.indices.map { "[ain\($0)]" }.joined())
-        for (i, range) in ranges.enumerated() {
-            filters.append("[vin\(i)]trim=start=\(range.start):end=\(range.end),setpts=PTS-STARTPTS[v\(i)]")
-            filters.append("[ain\(i)]atrim=start=\(range.start):end=\(range.end),asetpts=PTS-STARTPTS[a\(i)]")
-        }
-        filters.append(
-            ranges.indices.map { "[v\($0)][a\($0)]" }.joined() + "concat=n=\(ranges.count):v=1:a=1[cutv][aout]")
-        if options.burnSubtitles {
-            filters.append("[1:v:0]format=rgba,setpts=PTS-STARTPTS[sub]")
-            filters.append("[cutv][sub]overlay=0:0:eof_action=pass:format=auto,format=yuv420p[vout]")
+        if video {
+            if options.burnSubtitles {
+                let sequence = try SubtitleRenderer.makeSequence(
+                    cues: cues, style: options.style, width: project.media.width, height: project.media.height,
+                    duration: mapper.editedDuration, directory: staging.appendingPathComponent("subtitles"),
+                    cancellation: cancellation)
+                args += ["-f", "concat", "-safe", "0", "-i", sequence.path]
+            }
+            if !project.media.hasAudio { args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"] }
+            let audioInput = project.media.hasAudio ? "0:a:0" : (options.burnSubtitles ? "2:a:0" : "1:a:0")
+            let subtitleInput = 1 + (options.burnSubtitles ? 1 : 0) + (project.media.hasAudio ? 0 : 1)
+            let subtitleTrack = options.subtitleTrack && !cues.isEmpty
+            if subtitleTrack {
+                let srt = staging.appendingPathComponent("track.srt")
+                try builder.srt(cues).write(to: srt, atomically: true, encoding: .utf8)
+                args += ["-f", "srt", "-i", srt.path]
+            }
+            // Explicit split/asplit makes reuse of the same input deterministic for many kept ranges.
+            filters.append("[0:v:0]split=\(ranges.count)" + ranges.indices.map { "[vin\($0)]" }.joined())
+            filters.append("[\(audioInput)]asplit=\(ranges.count)" + ranges.indices.map { "[ain\($0)]" }.joined())
+            for (i, range) in ranges.enumerated() {
+                filters.append("[vin\(i)]trim=start=\(range.start):end=\(range.end),setpts=PTS-STARTPTS[v\(i)]")
+                filters.append("[ain\(i)]atrim=start=\(range.start):end=\(range.end),asetpts=PTS-STARTPTS[a\(i)]")
+            }
+            filters.append(
+                ranges.indices.map { "[v\($0)][a\($0)]" }.joined() + "concat=n=\(ranges.count):v=1:a=1[cutv][aout]")
+            if options.burnSubtitles {
+                filters.append("[1:v:0]format=rgba,setpts=PTS-STARTPTS[sub]")
+                filters.append("[cutv][sub]overlay=0:0:eof_action=pass:format=auto,format=yuv420p[vout]")
+            } else {
+                filters.append("[cutv]format=yuv420p[vout]")
+            }
+            // Keep a diagnostic graph in staging. No user text enters the filter graph.
+            let graph = staging.appendingPathComponent("filters.txt")
+            try filters.joined(separator: ";\n").write(to: graph, atomically: true, encoding: .utf8)
+            args += ["-filter_complex", filters.joined(separator: ";"), "-map", "[vout]", "-map", "[aout]"]
+            if subtitleTrack {
+                args += [
+                    "-map", "\(subtitleInput):s:0", "-c:s", "mov_text", "-metadata:s:s:0",
+                    "language=\(Self.subtitleLanguage(project.transcript?.language))", "-disposition:s:0", "default",
+                ]
+            }
+            if options.quality == .software {
+                args += ["-c:v", "libx264", "-crf", "20", "-preset", "medium"]
+            } else {
+                let multiplier = options.quality == .compact ? 0.6 : options.quality == .high ? 1.5 : 1.0
+                let bitrate = max(1_500_000, min(40_000_000, Int(Double(project.media.bitrate) * multiplier)))
+                args += ["-c:v", "h264_videotoolbox", "-b:v", "\(bitrate)"]
+            }
         } else {
-            filters.append("[cutv]format=yuv420p[vout]")
-        }
-        // Keep a diagnostic graph in staging. No user text enters the filter graph.
-        let graph = staging.appendingPathComponent("filters.txt")
-        try filters.joined(separator: ";\n").write(to: graph, atomically: true, encoding: .utf8)
-        args += ["-filter_complex", filters.joined(separator: ";"), "-map", "[vout]", "-map", "[aout]"]
-        if subtitleTrack {
-            args += [
-                "-map", "\(subtitleInput):s:0", "-c:s", "mov_text", "-metadata:s:s:0",
-                "language=\(Self.subtitleLanguage(project.transcript?.language))", "-disposition:s:0", "default",
-            ]
-        }
-        if options.quality == .software {
-            args += ["-c:v", "libx264", "-crf", "20", "-preset", "medium"]
-        } else {
-            let multiplier = options.quality == .compact ? 0.6 : options.quality == .high ? 1.5 : 1.0
-            let bitrate = max(1_500_000, min(40_000_000, Int(Double(project.media.bitrate) * multiplier)))
-            args += ["-c:v", "h264_videotoolbox", "-b:v", "\(bitrate)"]
+            filters.append("[0:a:0]asplit=\(ranges.count)" + ranges.indices.map { "[ain\($0)]" }.joined())
+            for (i, range) in ranges.enumerated() {
+                filters.append("[ain\(i)]atrim=start=\(range.start):end=\(range.end),asetpts=PTS-STARTPTS[a\(i)]")
+            }
+            filters.append(ranges.indices.map { "[a\($0)]" }.joined() + "concat=n=\(ranges.count):v=0:a=1[aout]")
+            args += ["-filter_complex", filters.joined(separator: ";"), "-map", "[aout]", "-vn"]
         }
         args += [
             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-t", "\(mapper.editedDuration)", "-progress",

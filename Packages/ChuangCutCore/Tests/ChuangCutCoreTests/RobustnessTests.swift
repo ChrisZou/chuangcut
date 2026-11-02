@@ -164,6 +164,22 @@ final class RobustnessTests: XCTestCase {
         let upsideDown = try info(#""side_data_list":[{"rotation":180}]"#)
         XCTAssertEqual([upsideDown.width, upsideDown.height], [1920, 1080])
     }
+    func testAudioRecordingOpensWithoutVideo() throws {
+        func info(_ streams: String) throws -> MediaInfo {
+            let json = #"{"format":{"duration":"185.8","bit_rate":"257000"},"streams":[\#(streams)]}"#
+            return try FFmpegRunner.mediaInfo(probeJSON: Data(json.utf8))
+        }
+        let audio = try info(#"{"codec_type":"audio"}"#)
+        XCTAssertTrue(audio.isAudioOnly)
+        XCTAssertEqual([audio.width, audio.height], [1920, 1080])
+        // Cover art is not a picture to edit.
+        let withCover = try info(
+            #"{"codec_type":"audio"},{"codec_type":"video","width":600,"height":600,"disposition":{"attached_pic":1}}"#)
+        XCTAssertTrue(withCover.isAudioOnly)
+        XCTAssertThrowsError(try info(#"{"codec_type":"data"}"#))
+        let video = try info(#"{"codec_type":"video","width":1280,"height":720},{"codec_type":"audio"}"#)
+        XCTAssertFalse(video.isAudioOnly)
+    }
 
     /// Whisper reported 今 at 2.72–3.83 although speech resumed at 4.56, and 辑 inside the next pause.
     func testWordSpanningASilenceMovesToItsLongerSide() {

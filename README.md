@@ -34,7 +34,7 @@ To test dragging an **unselected** clip edge, launch with `--select-segment 0 --
 
 ## Editing
 
-- Drop a video into the window or use **File → Open** (`⌘O`).
+- Drop a video or audio file into the window or use **File → Open** (`⌘O`). An audio recording plays over a black picture with the subtitles, its timeline clips show a full-height waveform scaled to the recording's loud speech, and it exports as M4A with SRT beside it.
 - A video without a transcript is transcribed and analysed as soon as it opens; review the color-coded cuts in the transcript. The toolbar holds only **Import** and **Export**; **Clip** › Transcribe Again… and Detect Cuts Again (`⇧⌘R`) redo the analysis, for example after changing detection settings.
 - Click a word to seek; clicking a removed word seeks to the edit point where its cut begins. Option-click cut text or click a pause pill to toggle a cut. Right-click provides the same actions.
 - Select transcript text and press Delete to create a manual cut. `⌘Z` undoes cut changes. During playback the transcript scrolls to keep the spoken word in view, except for a few seconds after you scroll it yourself.

@@ -180,6 +180,10 @@ public struct MediaInfo: Codable, Sendable {
     public var bitrate: Int
     public var hasAudio: Bool
     public var frameRate: Double? = nil
+    /// False for an audio recording, which is edited over a black picture and exported as audio. Projects
+    /// saved before audio support have no value and are video.
+    public var hasVideo: Bool? = nil
+    public var isAudioOnly: Bool { hasVideo == false }
 }
 public struct Project: Codable, Sendable {
     public var source: URL

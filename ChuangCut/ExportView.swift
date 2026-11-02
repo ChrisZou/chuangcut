@@ -6,6 +6,8 @@ struct ExportView: View {
     @State private var output: URL?
     @State private var options = ExportOptions()
     @State private var styleExpanded = false
+    /// An audio recording exports as M4A with its subtitles beside it, so the video options go.
+    private var audioOnly: Bool { model.project?.media.isAudioOnly ?? false }
     var body: some View {
         VStack(spacing: 16) {
             HStack {
@@ -25,16 +27,18 @@ struct ExportView: View {
                         Image(systemName: "folder")
                     }.help("Choose output file").accessibilityLabel("Choose output file")
                 }
-                Picker("Quality", selection: $options.quality) {
-                    Text("Compact · Hardware").tag(VideoQuality.compact)
-                    Text("Balanced · Hardware").tag(VideoQuality.balanced)
-                    Text("High · Hardware").tag(VideoQuality.high)
-                    Text("H.264 · CRF 20").tag(VideoQuality.software)
+                if !audioOnly {
+                    Picker("Quality", selection: $options.quality) {
+                        Text("Compact · Hardware").tag(VideoQuality.compact)
+                        Text("Balanced · Hardware").tag(VideoQuality.balanced)
+                        Text("High · Hardware").tag(VideoQuality.high)
+                        Text("H.264 · CRF 20").tag(VideoQuality.software)
+                    }
+                    Toggle("Subtitle track", isOn: $options.subtitleTrack)
+                        .help("Embed the subtitles as a track players can turn on and off, without burning them in")
                 }
-                Toggle("Subtitle track", isOn: $options.subtitleTrack)
-                    .help("Embed the subtitles as a track players can turn on and off, without burning them in")
                 Toggle("SRT file", isOn: $options.includeSRT)
-                Toggle("Burn subtitles", isOn: $options.burnSubtitles)
+                if !audioOnly { Toggle("Burn subtitles", isOn: $options.burnSubtitles) }
                 Button {
                     withAnimation { styleExpanded.toggle() }
                 } label: {
@@ -58,14 +62,15 @@ struct ExportView: View {
                     }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
-        }.padding(22).frame(width: 610, height: styleExpanded ? 766 : 566)
+        }.padding(22).frame(width: 610, height: (styleExpanded ? 766 : 566) - (audioOnly ? 104 : 0))
             .onAppear { options.style = AppSettings.shared.style }
     }
     private func chooseOutput() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.allowedContentTypes = [audioOnly ? .mpeg4Audio : .mpeg4Movie]
         panel.nameFieldStringValue =
-            (model.project?.source.deletingPathExtension().lastPathComponent ?? "video") + "_cut.mp4"
+            (model.project?.source.deletingPathExtension().lastPathComponent ?? "video")
+            + (audioOnly ? "_cut.m4a" : "_cut.mp4")
         if panel.runModal() == .OK { output = panel.url }
     }
 }

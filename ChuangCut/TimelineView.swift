@@ -23,7 +23,7 @@ final class TimelinePanel: NSView {
         canvas.scroll = scroll
         scroll.documentView = canvas
         canvas.setAccessibilityLabel(
-            "Video timeline. Select a clip or subtitle and drag its edges to trim. Delete removes the selection.")
+            "Timeline. Select a clip or subtitle and drag its edges to trim. Delete removes the selection.")
 
         let icon = NSImageView(image: .symbol("rectangle.stack", "Timeline", size: 11))
         let title = NSTextField.label(12, weight: .semibold)
@@ -255,6 +255,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             xRadius: 7, yRadius: 7
         ).fill()
         var requests: [Double] = []
+        let audioOnly = model.project?.media.isAudioOnly ?? false
         for clip in clips {
             let box = rect(clip)
             guard box.intersects(dirtyRect) else { continue }
@@ -266,7 +267,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             let tileWidth = 92.0
             let first = max(0, Int((dirtyRect.minX - box.minX) / tileWidth))
             let last = max(first, Int((min(box.maxX, dirtyRect.maxX) - box.minX) / tileWidth))
-            for tile in first...last {
+            for tile in first...last where !audioOnly {
                 let tileRect = NSRect(x: box.minX + Double(tile) * tileWidth, y: box.minY, width: tileWidth, height: 64)
                 let source = min(clip.source.end - 0.001, clip.source.start + Double(tile) * tileWidth / pps)
                 requests.append(source)
@@ -290,10 +291,14 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
                     label, at: NSPoint(x: max(box.minX + 16, dirtyRect.minX + 4), y: box.minY + 5), color: .white,
                     size: 10, weight: .medium)
             }
-            let wave = NSRect(x: box.minX, y: box.minY + 64, width: box.width, height: 36)
+            // An audio recording has no frames: its waveform fills the clip below the label.
+            let wave =
+                audioOnly
+                ? NSRect(x: box.minX, y: box.minY + 22, width: box.width, height: box.height - 22)
+                : NSRect(x: box.minX, y: box.minY + 64, width: box.width, height: 36)
             NSColor(calibratedRed: 0.08, green: 0.23, blue: 0.25, alpha: 1).setFill()
             wave.fill()
-            drawWaveform(clip, rect: wave, dirty: dirtyRect, context: cg)
+            drawWaveform(clip, rect: wave, dirty: dirtyRect, context: cg, fit: audioOnly)
             cg.restoreGState()
             if model.selectedSegment == clip.index {
                 NSColor.systemYellow.setStroke()
@@ -520,9 +525,11 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
         }
         return best.map { ($0.index, $0.edge) }
     }
-    private func drawWaveform(_ clip: Clip, rect: NSRect, dirty: NSRect, context: CGContext) {
+    /// `fit` scales the recording's loud speech to the lane's height instead of using a fixed gain.
+    private func drawWaveform(_ clip: Clip, rect: NSRect, dirty: NSRect, context: CGContext, fit: Bool = false) {
         // One read: every access to an observable property goes through its registrar.
-        guard let peaks = model?.peaks, !peaks.isEmpty, mapper.duration > 0 else { return }
+        guard let model, case let peaks = model.peaks, !peaks.isEmpty, mapper.duration > 0 else { return }
+        let gain = fit ? Double(rect.height / 2 - 4) / Double(max(model.loudPeak, 0.001)) : 14
         context.setStrokeColor(NSColor(calibratedRed: 0.36, green: 0.85, blue: 0.77, alpha: 0.9).cgColor)
         context.setLineWidth(1)
         let startX = max(rect.minX, dirty.minX)
@@ -536,7 +543,7 @@ final class TimelineCanvas: NSView, NSMenuItemValidation {
             // Each 2-point column shows the loudest peak it spans, so zooming out never hides speech.
             let first = bucket(px)
             let last = max(first, bucket(min(px + 2, endX)) - 1)
-            let amp = max(0.7, Double(peaks[first...last].max() ?? 0) * 14)
+            let amp = min(rect.height / 2 - 1, max(0.7, Double(peaks[first...last].max() ?? 0) * gain))
             context.move(to: CGPoint(x: px, y: rect.midY - amp))
             context.addLine(to: CGPoint(x: px, y: rect.midY + amp))
             px += 2
